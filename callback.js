@@ -1,0 +1,467 @@
+import * as api from './api.js';
+import * as db from './db.js';
+import * as KB from './keyboards.js';
+import { escapeHtml, getFullProduct, resolvePrice } from './products.js';
+import { cashbackPercent, money, referralCommissionPercent, referralReward, isAdmin, isSuperAdmin } from './config.js';
+import { broadcastStatusText, canProceed, menuKeyboardFor, notifyAdmin, resumeCheckout, showPayment } from './flows.js';
+import { sendLastOrders, sendOrdersExcel, sendOrdersReport, showCategoryMenu, showOrdersPanel } from './admin_orders.js';
+import { sendUsersExcel } from './admin_users.js';
+import { handleProductCallback, isProductCallback } from './admin_products.js';
+export async function handleCallback(env, callbackQuery) {
+  const chatId = String(callbackQuery.message.chat.id);
+  // کسی که واقعاً دکمه را زده (برای بررسی دسترسی ادمین)
+  const actorId = String(callbackQuery.from?.id ?? '');
+  const data = String(callbackQuery.data || '');
+  const callbackId = callbackQuery.id;
+  const messageId = callbackQuery.message?.message_id;
+
+  // دکمه‌های مدیریتی فقط برای سوپرادمین
+  // نام کاربری تلگرام در مراحل خرید (برای جزئیات سفارش در پنل ادمین)
+  if (/^(buy|os|rcpt|wpay|walletpay|receipt):/.test(data)) {
+    await db.rememberUsername(env, actorId, callbackQuery.from?.username);
+  }
+
+  const adminOnly = data === 'bc_next' || data.startsWith('adm_') || data.startsWith('ord_type:') || data.startsWith('ord_fetch:');
+  if (adminOnly && !isSuperAdmin(env, actorId)) {
+    await api.answerCallbackQuery(env, callbackId, { text: '⛔ دسترسی ندارید.', show_alert: true });
+    return;
+  }
+
+  // ساخت و مدیریت محصولات (همه‌ی ادمین‌ها)
+  if (isProductCallback(data)) {
+    if (!isAdmin(env, actorId)) {
+      await api.answerCallbackQuery(env, callbackId, { text: '⛔ دسترسی ندارید.', show_alert: true });
+      return;
+    }
+    await handleProductCallback(env, chatId, data, callbackId, messageId);
+    return;
+  }
+
+  // دکمه‌ی «ارسال دسته بعدی» پیام‌های قدیمی: ارسال حالا خودکار است، فقط وضعیت نمایش داده می‌شود
+  if (data === 'bc_next') {
+    await api.answerCallbackQuery(env, callbackId);
+    await api.sendMessage(env, chatId, await broadcastStatusText(env));
+    return;
+  }
+
+  if (data === 'check_membership') {
+    const channelUsername = (env.CHANNEL_USERNAME || '').replace('@', '');
+    try {
+      const member = await api.getChatMember(env, `@${channelUsername}`, chatId);
+      const status = member?.result?.status;
+      const isMember = ['creator', 'administrator', 'member'].includes(status);
+
+      if (isMember) {
+        await db.setChannelConfirmed(env, chatId);
+        await api.answerCallbackQuery(env, callbackId, { text: '✅ عضویت شما تایید شد!' });
+        
+        if (await canProceed(env, chatId)) {
+          const registered = await db.isRegistered(env, chatId);
+          if (!registered) {
+            await api.sendMessage(env, chatId, '🌸 خوش آمدید!\n\nبرای فعال‌سازی کیف پول و هدیه ثبت‌نام، لطفا ثبت‌نام کنید:', KB.registerKeyboard());
+          } else {
+            await api.sendMessage(env, chatId, 'از منوی زیر یکی رو انتخاب کن 👇', await menuKeyboardFor(env, chatId));
+          }
+        }
+      } else {
+        await api.answerCallbackQuery(env, callbackId, { text: '❌ هنوز در کانال عضو نشده‌اید!', show_alert: true });
+      }
+    } catch (e) {
+      await api.answerCallbackQuery(env, callbackId, { text: '❌ خطا در بررسی عضویت.', show_alert: true });
+    }
+    return;
+  }
+
+  // ---------- پنل سفارش‌های ادمین ----------
+  // ord_type / ord_fetch: دکمه‌های پیام‌های قدیمی /orders که به پنل جدید هدایت می‌شوند
+  if (data === 'adm_orders' || data.startsWith('ord_type:') || data.startsWith('ord_fetch:')) {
+    await api.answerCallbackQuery(env, callbackId);
+    await showOrdersPanel(env, chatId);
+    return;
+  }
+
+  if (data === 'adm_xls:orders' || data === 'adm_xls:users') {
+    await api.answerCallbackQuery(env, callbackId, { text: '⏳ در حال ساخت فایل اکسل...' });
+    try {
+      if (data === 'adm_xls:users') await sendUsersExcel(env, chatId);
+      else await sendOrdersExcel(env, chatId, 'all');
+    } catch (err) {
+      await api.sendMessage(env, chatId, `❌ خطا در ساخت فایل اکسل: ${err.message || err}`);
+    }
+    return;
+  }
+
+  if (data.startsWith('adm_ord:')) {
+    const [, key, view] = data.split(':');
+    await api.answerCallbackQuery(env, callbackId);
+    try {
+      if (view === 'last') await sendLastOrders(env, chatId, key, 10);
+      else if (view === 'report') await sendOrdersReport(env, chatId, key);
+      else await showCategoryMenu(env, chatId, key);
+    } catch (err) {
+      await api.sendMessage(env, chatId, `❌ خطا در دریافت سفارش‌ها: ${err.message || err}`);
+    }
+    return;
+  }
+
+  if (data.startsWith('os:')) {
+    const parts = data.split(':');
+    const productId = parts[1];
+    const osType = parts[2];
+    await api.answerCallbackQuery(env, callbackId);
+
+    const registered = await db.isRegistered(env, chatId);
+    if (!registered) {
+      await api.sendMessage(env, chatId, '⚠️ برای ادامه خرید و ثبت سفارش ابتدا باید ثبت‌نام کنید:', KB.registerKeyboard());
+      return;
+    }
+
+    if (osType === 'android') {
+      const product = await getFullProduct(env, productId);
+      if (product && (product.androidFileId || product.androidLink)) {
+        if (product.androidFileId) {
+          await api.sendDocument(env, chatId, product.androidFileId, `📱 نسخه اندروید «${product.title}»`);
+        } else {
+          await api.sendMessage(env, chatId, `🔗 لینک دانلود:\n${product.androidLink}`);
+        }
+        return;
+      }
+    }
+
+    const discountActive = await db.isDiscountActive(env);
+    if (discountActive) {
+      await api.sendMessage(env, chatId, '🎟️ آیا کد تخفیف دارید؟', KB.discountPromptKeyboard(productId, osType));
+    } else {
+      await showPayment(env, chatId, productId, osType, 0);
+    }
+    return;
+  }
+
+  if (data.startsWith('buy:')) {
+    const productId = data.split(':')[1];
+    await api.answerCallbackQuery(env, callbackId);
+
+    const registered = await db.isRegistered(env, chatId);
+    if (!registered) {
+      await api.sendMessage(env, chatId, '⚠️ برای ادامه خرید و ثبت سفارش ابتدا باید ثبت‌نام کنید:', KB.registerKeyboard());
+      return;
+    }
+
+    const discountActive = await db.isDiscountActive(env);
+    if (discountActive) {
+      await api.sendMessage(env, chatId, '🎟️ آیا کد تخفیف دارید؟', KB.discountPromptKeyboard(productId, ''));
+    } else {
+      await showPayment(env, chatId, productId, '', 0);
+    }
+    return;
+  }
+
+  if (data.startsWith('discount_yes:')) {
+    const [, productId, osType] = data.split(':');
+    await api.answerCallbackQuery(env, callbackId);
+    // دکمه‌ی قدیمی بعد از خاموش شدن سیستم تخفیف: مستقیم به پرداخت
+    if (!(await db.isDiscountActive(env))) {
+      await showPayment(env, chatId, productId, osType || '', 0);
+      return;
+    }
+    await db.setSession(env, chatId, 'awaiting_discount_code', { productId, osType, attempts: 0 });
+    await api.sendMessage(env, chatId, '✍️ لطفاً کد تخفیف خود را ارسال کنید (یا /cancel را بزنید):', KB.cancelKeyboard());
+    return;
+  }
+
+  if (data.startsWith('discount_no:')) {
+    const [, productId, osType] = data.split(':');
+    await api.answerCallbackQuery(env, callbackId);
+    await showPayment(env, chatId, productId, osType, 0);
+    return;
+  }
+
+  // ---------- دکمه‌های متصل به سفارش (rcpt / wpay / resume) ----------
+  if (data.startsWith('rcpt:') || data.startsWith('wpay:') || data.startsWith('resume:')) {
+    const [action, rawId] = data.split(':');
+    const order = await db.getOrder(env, Number(rawId));
+
+    // فقط صاحب سفارش (بر اساس فرستنده‌ی واقعی کلیک) اجازه دارد
+    if (!order || order.user_id !== actorId) {
+      await api.answerCallbackQuery(env, callbackId, { text: '⛔ این سفارش متعلق به شما نیست.', show_alert: true });
+      return;
+    }
+    if (!(await db.isRegistered(env, actorId))) {
+      await api.answerCallbackQuery(env, callbackId, { text: '⚠️ ابتدا ثبت‌نام کنید.', show_alert: true });
+      await api.sendMessage(env, chatId, '⚠️ برای ادامه خرید ابتدا باید ثبت‌نام کنید:', KB.registerKeyboard());
+      return;
+    }
+
+    if (action === 'resume') {
+      const result = await db.resumePendingOrder(env, order.id, actorId);
+      if (!result.ok) {
+        await api.answerCallbackQuery(env, callbackId, { text: inactiveOrderText(result.order), show_alert: true });
+        return;
+      }
+      await api.answerCallbackQuery(env, callbackId);
+      await resumeCheckout(env, chatId, result.order);
+      return;
+    }
+
+    if (action === 'rcpt') {
+      if (!(await db.setCheckoutStep(env, order.id, actorId, 'awaiting_receipt'))) {
+        await api.answerCallbackQuery(env, callbackId, { text: inactiveOrderText(await db.getOrder(env, order.id)), show_alert: true });
+        return;
+      }
+      await startReceiptStep(env, chatId, callbackId, order);
+      return;
+    }
+
+    // wpay
+    await payOrderFromWallet(env, chatId, callbackId, order);
+    return;
+  }
+
+  if (data.startsWith('receipt:')) {
+    const parts = data.split(':');
+    const productId = parts[1];
+    const osType = parts[2] || '';
+    const session = await db.getSession(env, chatId);
+    const discountPercent = session.data?.discountPercent || 0;
+
+    const registered = await db.isRegistered(env, chatId);
+    if (!registered) {
+      await api.answerCallbackQuery(env, callbackId, { text: '⚠️ ابتدا ثبت‌نام کنید.', show_alert: true });
+      await api.sendMessage(env, chatId, '⚠️ برای ثبت نهایی سفارش ابتدا باید ثبت‌نام کنید:', KB.registerKeyboard());
+      return;
+    }
+
+    // دکمه‌ی پیش‌فاکتورهای قدیمی: اگر سفارش pending همین محصول وجود دارد، به همان متصل می‌شود
+    const pending = await db.findPendingOrder(env, chatId, productId, osType);
+    if (pending && (await db.setCheckoutStep(env, pending.id, chatId, 'awaiting_receipt'))) {
+      await startReceiptStep(env, chatId, callbackId, pending);
+      return;
+    }
+
+    await db.setSession(env, chatId, 'awaiting_receipt', { productId, osType, discountPercent });
+    await api.answerCallbackQuery(env, callbackId);
+    await api.sendMessage(env, chatId, '📸 لطفاً تصویر رسید واریزی خود را ارسال کنید:', KB.cancelKeyboard());
+    return;
+  }
+
+  if (data.startsWith('walletpay:')) {
+    const parts = data.split(':');
+    const productId = parts[1];
+    const osType = parts[2] || '';
+    const session = await db.getSession(env, chatId);
+    const discountPercent = session.data?.discountPercent || 0;
+
+    const registered = await db.isRegistered(env, chatId);
+    if (!registered) {
+      await api.answerCallbackQuery(env, callbackId, { text: '⚠️ ابتدا ثبت‌نام کنید.', show_alert: true });
+      await api.sendMessage(env, chatId, '⚠️ برای پرداخت ابتدا باید ثبت‌نام کنید:', KB.registerKeyboard());
+      return;
+    }
+
+    const pending = await db.findPendingOrder(env, chatId, productId, osType);
+    if (pending) {
+      await payOrderFromWallet(env, chatId, callbackId, pending);
+      return;
+    }
+
+    const product = await getFullProduct(env, productId);
+    if (!product) return;
+
+    const basePrice = resolvePrice(product, osType);
+    const discountAmount = Math.round((basePrice * discountPercent) / 100);
+    const finalPrice = Math.max(0, basePrice - discountAmount);
+
+    // بررسی موجودی و کسر آن به‌صورت اتمیک در دیتابیس انجام می‌شود؛
+    // شناسه callback باعث می‌شود ارسال دوباره‌ی همین کلیک سفارش دوم نسازد.
+    const result = await db.payOrderWithWallet(env, {
+      payKey: `walletpay:${callbackId}`,
+      chatId,
+      productId,
+      productTitle: product.title,
+      osType,
+      price: finalPrice,
+    });
+
+    if (result.ok) {
+      const orderId = `1000${result.order.id}`;
+      await api.answerCallbackQuery(env, callbackId, { text: '🎉 پرداخت انجام شد!' });
+      if (result.reason === 'paid') {
+        await db.clearSession(env, chatId);
+        await api.sendMessage(env, chatId, `✅ مبلغ ${money(result.order.amount)} تومان از کیف پول شما کسر شد.\nسفارش <b>${orderId}</b> ثبت شد.`);
+        await notifyAdmin(
+          env,
+          `💼 <b>خرید با کیف پول (سفارش #${orderId})</b>\nمحصول: ${escapeHtml(product.title)}\nمبلغ: ${money(result.order.amount)} تومان`
+        );
+      }
+    } else if (result.reason === 'invalid_price') {
+      await api.answerCallbackQuery(env, callbackId, { text: '⚠️ این محصول هنوز قیمت‌گذاری نشده است.', show_alert: true });
+    } else {
+      await api.answerCallbackQuery(env, callbackId, { text: '❌ موجودی کیف پول کافی نیست.', show_alert: true });
+    }
+    return;
+  }
+
+  if (data.startsWith('confirm_order:')) {
+    // بررسی دسترسی سمت سرور، بر اساس فرستنده‌ی واقعی کلیک
+    if (!isAdmin(env, actorId)) {
+      await api.answerCallbackQuery(env, callbackId, { text: '⛔ دسترسی ندارید.', show_alert: true });
+      return;
+    }
+
+    const rawOrderId = data.split(':')[1];
+    const orderId = `1000${rawOrderId}`;
+    const result = await db.confirmOrder(env, rawOrderId, {
+      commissionPercent: referralCommissionPercent(env),
+      referralReward: referralReward(env),
+      cashbackPercent: cashbackPercent(env),
+    });
+    const order = result.order;
+
+    // پاداش‌هایی که در همین اجرا ثبت شدند (در اجرای تکراری دوباره اطلاع داده نمی‌شود)
+    if (result.referrerId && result.commission.appliedNow) {
+      await api.sendMessage(
+        env,
+        result.referrerId,
+        `🎁 <b>پاداش خرید زیرمجموعه!</b>\nکمیسیون (${referralCommissionPercent(env)}% از پرداختی خالص): <b>${money(result.commission.amount)} تومان</b> به کیف پول شما اضافه شد 🌸`
+      );
+    }
+    if (result.referrerId && result.referralReward.appliedNow) {
+      await api.sendMessage(
+        env,
+        result.referrerId,
+        `🎉 <b>پاداش دعوت!</b>\nدوستی که دعوت کرده بودید اولین خریدش را انجام داد و <b>${money(result.referralReward.amount)} تومان</b> به کیف پول شما اضافه شد 🌸`
+      );
+    }
+
+    if (!result.ok) {
+      const reasons = {
+        not_found: '⚠️ سفارش پیدا نشد.',
+        already_confirmed: '⚠️ این سفارش قبلاً تایید شده است.',
+        invalid_status: `⚠️ وضعیت این سفارش «${order?.status}» است و قابل تایید نیست.`,
+        insufficient_wallet: `❌ موجودی کیف پول کاربر برای کسر ${money(order?.wallet_used)} تومان کافی نیست؛ سفارش تایید نشد.`,
+      };
+      await api.answerCallbackQuery(env, callbackId, { text: reasons[result.reason] || '⚠️ خطا', show_alert: true });
+      return;
+    }
+
+    await api.answerCallbackQuery(env, callbackId, { text: '✅ سفارش تایید شد.' });
+
+    if (messageId) {
+      try {
+        const originalText = callbackQuery.message?.text || callbackQuery.message?.caption || '';
+        await api.callTelegram(env, 'editMessageText', {
+          chat_id: chatId,
+          message_id: messageId,
+          text: originalText + '\n\n<b>[✅ توسط شما تایید شد]</b>',
+          parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: [] }
+        });
+      } catch (e) {}
+    }
+
+    if (order.product_id !== 'custom_bot') {
+      const product = await getFullProduct(env, order.product_id);
+      const productDisplayName = escapeHtml(product ? product.title : (order.product_title || 'محصول'));
+      
+      await api.sendMessage(
+        env,
+        order.user_id,
+        `✅ <b>سفارش شما با شماره <b>${orderId}</b> تایید شد و به زودی برای شما ارسال میشود.</b>\n\nمحصول: ${productDisplayName}`
+      );
+    }
+    if (result.cashback.appliedNow) {
+      const balance = await db.getWallet(env, order.user_id);
+      await api.sendMessage(
+        env,
+        order.user_id,
+        `💸 <b>کش‌بک خرید!</b>\n<b>${money(result.cashback.amount)} تومان</b> بابت سفارش ${orderId} به کیف پول شما برگشت.\n💼 موجودی فعلی: ${money(balance)} تومان`
+      );
+    }
+    return;
+  }
+
+  if (data.startsWith('reject_order:')) {
+    if (!isAdmin(env, actorId)) {
+      await api.answerCallbackQuery(env, callbackId, { text: '⛔ دسترسی ندارید.', show_alert: true });
+      return;
+    }
+
+    const rawOrderId = data.split(':')[1];
+    const orderId = `1000${rawOrderId}`;
+    const result = await db.rejectOrder(env, rawOrderId);
+
+    if (!result.ok) {
+      const text = result.reason === 'invalid_status'
+        ? `⚠️ وضعیت این سفارش «${result.order.status}» است و قابل رد نیست.`
+        : '⚠️ سفارش نامعتبر یا قبلاً رد شده است.';
+      await api.answerCallbackQuery(env, callbackId, { text, show_alert: true });
+      return;
+    }
+
+    await api.answerCallbackQuery(env, callbackId, { text: '❌ سفارش رد شد.' });
+    await api.sendMessage(env, result.order.user_id, `❌ رسید پرداخت شما برای سفارش <b>${orderId}</b> تایید نشد.`);
+    return;
+  }
+}
+
+function inactiveOrderText(order) {
+  switch (order?.status) {
+    case 'cancelled':
+      return '⌛ این سفارش لغو شده است. برای خرید دوباره، محصول را از منو انتخاب کنید.';
+    case 'receipt_sent':
+      return '🧾 رسید این سفارش ثبت شده و در حال بررسی است.';
+    case 'paid_by_wallet':
+    case 'confirmed':
+      return '✅ این سفارش قبلاً پرداخت یا تایید شده است.';
+    case 'pending':
+      return '⌛ مهلت تکمیل این سفارش تمام شده است. لطفاً دوباره از منو اقدام کنید.';
+    default:
+      return '⚠️ این سفارش دیگر فعال نیست.';
+  }
+}
+
+async function startReceiptStep(env, chatId, callbackId, order) {
+  await db.setSession(env, chatId, 'awaiting_receipt', {
+    orderId: order.id,
+    productId: order.product_id,
+    osType: order.os_type || '',
+    discountPercent: Number(order.discount_percent) || 0,
+  });
+  await api.answerCallbackQuery(env, callbackId);
+  await api.sendMessage(env, chatId, '📸 لطفاً تصویر رسید واریزی خود را ارسال کنید:', KB.cancelKeyboard());
+}
+
+// پرداخت سفارش pending با کیف پول؛ قیمت و موجودی همین لحظه دوباره بررسی می‌شوند
+async function payOrderFromWallet(env, chatId, callbackId, order) {
+  const product = await getFullProduct(env, order.product_id);
+  if (!product) {
+    await api.answerCallbackQuery(env, callbackId, { text: '⚠️ این محصول در حال حاضر قابل خرید نیست.', show_alert: true });
+    return;
+  }
+  const basePrice = resolvePrice(product, order.os_type || '');
+  const discountPercent = Number(order.discount_percent) || 0;
+  const finalPrice = Math.max(0, basePrice - Math.round((basePrice * discountPercent) / 100));
+
+  const result = await db.payPendingOrderWithWallet(env, order.id, chatId, finalPrice);
+  const orderNo = `1000${order.id}`;
+
+  if (result.reason === 'paid') {
+    await api.answerCallbackQuery(env, callbackId, { text: '🎉 پرداخت انجام شد!' });
+    await db.clearSession(env, chatId);
+    await api.sendMessage(env, chatId, `✅ مبلغ ${money(result.order.amount)} تومان از کیف پول شما کسر شد.\nسفارش <b>${orderNo}</b> ثبت شد.`);
+    await notifyAdmin(
+      env,
+      `💼 <b>خرید با کیف پول (سفارش #${orderNo})</b>\nمحصول: ${escapeHtml(product.title)}\nمبلغ: ${money(result.order.amount)} تومان`
+    );
+  } else if (result.reason === 'duplicate') {
+    await api.answerCallbackQuery(env, callbackId, { text: '✅ این سفارش قبلاً پرداخت شده است.' });
+  } else if (result.reason === 'invalid_price') {
+    await api.answerCallbackQuery(env, callbackId, { text: '⚠️ این محصول هنوز قیمت‌گذاری نشده است.', show_alert: true });
+  } else if (result.reason === 'insufficient_wallet') {
+    await api.answerCallbackQuery(env, callbackId, { text: '❌ موجودی کیف پول کافی نیست.', show_alert: true });
+  } else {
+    await api.answerCallbackQuery(env, callbackId, { text: inactiveOrderText(result.order), show_alert: true });
+  }
+}
+
+export const handleCallbackQuery = handleCallback;

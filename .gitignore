@@ -1,0 +1,10 @@
+node_modules/
+.wrangler/
+# بکاپ‌ها در گیت هستند به‌جز داده‌ی دیتابیس (اطلاعات کاربران):
+backups/**/remote_full_export.sql
+backups/pre-*.sql
+backups/**/local_d1_before/
+backups/*.json
+backups/**/negative_wallets_before.json
+.dev.vars
+*.log
