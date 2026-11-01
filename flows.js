@@ -1,8 +1,17 @@
 import * as api from './api.js';
 import * as db from './db.js';
 import * as KB from './keyboards.js';
-import { buildProductCaption, getFullProduct, listProducts, resolvePrice } from './products.js';
-import { cashbackPercent, channelEnabled, customBotEnabled, money, isAdmin, isSuperAdmin, productColumns } from './config.js';
+import {
+  buildProductCaption,
+  getFullProduct,
+  listProducts,
+  orderPrice,
+  parseVariant,
+  QUANTITY_CHOICES,
+  shippingInfoText,
+  variantLabel,
+} from './products.js';
+import { cashbackPercent, channelEnabled, customBotEnabled, freeShippingMin, money, isAdmin, isSuperAdmin, productColumns } from './config.js';
 
 const BROADCAST_SOURCE_KEY = 'broadcast_source';
 
@@ -69,7 +78,8 @@ export async function showProduct(env, chatId, productId) {
     return;
   }
 
-  const text = buildProductCaption(product);
+  let text = buildProductCaption(product);
+  if (product.price > 0) text += `\n\n${shippingInfoText(env)}`;
   const keyboard = product.price > 0 ? KB.productKeyboard(product) : null;
   if (product.photoFileId) {
     await api.sendPhoto(env, chatId, product.photoFileId, text, keyboard);
@@ -81,14 +91,72 @@ export async function showProduct(env, chatId, productId) {
 // ----------------------------------------------------
 // نمایش صفحه پرداخت (اصلاح قیمت و رفع مشکل پرانتزها در تلگرام)
 // ----------------------------------------------------
-// محاسبه‌ی مبلغ از روی قیمت فعلی محصول، تخفیف و موجودی فعلی (موجودی منفی = صفر)
+// ----------------------------------------------------
+// مراحل خرید: تعداد ← روش تحویل ← (آدرس برای پیک) ← کد تخفیف ← پیش‌فاکتور
+// ----------------------------------------------------
+const addressKey = (chatId) => `address:${chatId}`;
+export const MAX_ADDRESS_LENGTH = 400;
+
+export async function getSavedAddress(env, chatId) {
+  return String((await db.getSetting(env, addressKey(chatId), '')) || '').trim();
+}
+
+export async function saveAddress(env, chatId, address) {
+  await db.setSetting(env, addressKey(chatId), address);
+}
+
+export async function askQuantity(env, chatId, productId) {
+  const product = await getFullProduct(env, productId);
+  if (!product) {
+    await api.sendMessage(env, chatId, '❌ این محصول دیگر موجود نیست.', await menuKeyboardFor(env, chatId));
+    return;
+  }
+  await api.sendMessage(env, chatId, `🔢 چند عدد «${escapeHtml(product.title)}» می‌خواهید؟`, KB.quantityKeyboard(productId, QUANTITY_CHOICES));
+}
+
+export async function askDelivery(env, chatId, productId, quantity) {
+  await api.sendMessage(env, chatId, `🚚 روش تحویل را انتخاب کنید:\n\n${shippingInfoText(env)}`, KB.deliveryKeyboard(productId, quantity));
+}
+
+// بعد از انتخاب روش تحویل: برای پیک آدرس گرفته می‌شود، بعد کد تخفیف / پیش‌فاکتور
+export async function chooseDelivery(env, chatId, productId, osType) {
+  if (parseVariant(osType).delivery === 'courier') {
+    const saved = await getSavedAddress(env, chatId);
+    await db.setSession(env, chatId, 'awaiting_address', { productId, osType });
+    if (saved) {
+      await api.sendMessage(env, chatId, `📍 آدرس قبلی شما:\n${escapeHtml(saved)}`, KB.savedAddressKeyboard(productId, osType));
+      await api.sendMessage(env, chatId, 'یا آدرس جدید را بنویسید 👇', KB.cancelKeyboard());
+    } else {
+      await api.sendMessage(env, chatId, '📍 آدرس کامل و کد پستی برای ارسال با پیک را بنویسید:', KB.cancelKeyboard());
+    }
+    return;
+  }
+  await continueCheckout(env, chatId, productId, osType);
+}
+
+export async function continueCheckout(env, chatId, productId, osType) {
+  if (await db.isDiscountActive(env)) {
+    await api.sendMessage(env, chatId, '🎟️ آیا کد تخفیف دارید؟', KB.discountPromptKeyboard(productId, osType));
+  } else {
+    await showPayment(env, chatId, productId, osType, 0);
+  }
+}
+
+// محاسبه‌ی مبلغ از روی قیمت فعلی محصول، تعداد، تخفیف، هزینه‌ی ارسال و موجودی فعلی (موجودی منفی = صفر)
 export async function priceBreakdown(env, chatId, product, osType = '', discountPercent = 0) {
-  const basePrice = resolvePrice(product, osType);
-  const discountAmount = Math.round((basePrice * discountPercent) / 100);
-  const price = Math.max(0, basePrice - discountAmount);
+  const p = orderPrice(env, product, osType, discountPercent);
   const wallet = Math.max(0, await db.getWallet(env, chatId));
-  const walletUsed = price > 0 ? Math.min(wallet, price) : 0;
-  return { basePrice, discountAmount, price, wallet, walletUsed, payable: price - walletUsed };
+  const walletUsed = p.price > 0 ? Math.min(wallet, p.price) : 0;
+  return { ...p, wallet, walletUsed, payable: p.price - walletUsed };
+}
+
+// متن تحویل برای پیام‌های ادمین: روش تحویل، تعداد و آدرس (از یادداشت سفارش)
+export function deliveryLines(order) {
+  const label = variantLabel(order?.os_type);
+  if (!label) return '';
+  let text = `📦 ${label}\n`;
+  if (parseVariant(order.os_type).delivery === 'courier' && order.note) text += `${escapeHtml(order.note)}\n`;
+  return text;
 }
 
 // صدور پیش‌فاکتور: یک سفارش pending ساخته یا تازه می‌شود و دکمه‌ها به همان سفارش متصل‌اند
@@ -114,6 +182,10 @@ export async function showPayment(env, chatId, productId, osType = '', discountP
     amount: b.price,
     walletUsed: b.walletUsed,
   });
+  if (order && parseVariant(osType).delivery === 'courier') {
+    const address = await getSavedAddress(env, chatId);
+    if (address) await db.setPendingOrderNote(env, order.id, chatId, `📍 آدرس: ${address}`);
+  }
 
   const keyboard = order
     ? KB.orderPaymentKeyboard(order.id, b.price > 0 && b.wallet >= b.price)
@@ -149,19 +221,29 @@ export async function resumeCheckout(env, chatId, order) {
 }
 
 function invoiceText(env, product, osType, discountPercent, b) {
-  const { price, discountAmount, wallet, walletUsed, payable } = b;
-  let productDisplayTitle = escapeHtml(product.title);
-  if (osType === 'ios') {
-    productDisplayTitle += ' [نسخه آیفون]';
-  } else if (osType === 'android') {
-    productDisplayTitle += ' [نسخه اندروید]';
-  }
+  const { basePrice, discountAmount, shipping, price, wallet, walletUsed, payable } = b;
+  const { delivery, quantity } = parseVariant(osType);
 
-  let text = `💳 <b>پیش‌فاکتور خرید:</b>\n\n🛍 محصول: ${productDisplayTitle}\n💰 قیمت کل: ${money(price)} تومان\n`;
+  let text = `💳 <b>پیش‌فاکتور خرید:</b>\n\n🛍 محصول: ${escapeHtml(product.title)}\n`;
+  if (delivery) {
+    text += `🔢 تعداد: ${quantity.toLocaleString('fa-IR')} × ${money(product.price)} تومان\n`;
+    text += `💰 مبلغ کالا: ${money(basePrice)} تومان\n`;
+  } else {
+    text += `💰 قیمت: ${money(basePrice)} تومان\n`;
+  }
 
   if (discountPercent > 0) {
     text += `📉 تخفیف (${discountPercent}%): ${money(discountAmount)} تومان\n`;
   }
+
+  if (delivery === 'pickup') {
+    text += '🏬 تحویل حضوری: رایگان\n';
+  } else if (delivery === 'courier') {
+    text += shipping > 0
+      ? `🛵 هزینه ارسال با پیک: ${money(shipping)} تومان\n`
+      : `🛵 ارسال با پیک: <b>رایگان</b> (خرید بالای ${money(freeShippingMin(env))} تومان)\n`;
+  }
+  text += `🧾 جمع کل: <b>${money(price)} تومان</b>\n`;
 
   if (walletUsed > 0) {
     text += `💼 اعتبار کیف پول: ${money(wallet)} تومان\n`;

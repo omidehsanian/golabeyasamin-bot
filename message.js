@@ -1,7 +1,7 @@
 import * as api from './api.js';
 import * as db from './db.js';
 import * as KB from './keyboards.js';
-import { findProductIdByButton, getFullProduct, resolvePrice, escapeHtml } from './products.js';
+import { findProductIdByButton, getFullProduct, orderPrice, escapeHtml } from './products.js';
 import { isSuperAdmin, isAdmin, money, signupBonus, shopName, customBotEnabled } from './config.js';
 import {
   menuKeyboardFor,
@@ -12,6 +12,10 @@ import {
   broadcastStatusText,
   stopBroadcast,
   showPayment,
+  continueCheckout,
+  deliveryLines,
+  saveAddress,
+  MAX_ADDRESS_LENGTH,
 } from './flows.js';
 import { sendOrderDetails, showOrdersPanel } from './admin_orders.js';
 import {
@@ -254,6 +258,26 @@ export async function handleMessage(env, message) {
     }
   }
 
+  // آدرس ارسال با پیک؛ زدن یکی از دکمه‌های منو یعنی کاربر از خرید بیرون رفته
+  if (session.state === 'awaiting_address') {
+    if (KB.RESERVED_BUTTONS.includes(text) || (await findProductIdByButton(env, text))) {
+      await db.clearSession(env, chatId);
+      session.state = null;
+    } else {
+      const address = text.replace(/\s+/g, ' ').trim();
+      if (address.length < 10 || address.length > MAX_ADDRESS_LENGTH || address.startsWith('/')) {
+        await api.sendMessage(env, chatId, `⚠️ لطفاً آدرس کامل را به‌صورت متن بنویسید (بین ۱۰ تا ${MAX_ADDRESS_LENGTH} کاراکتر):`, KB.cancelKeyboard());
+        return;
+      }
+      const { productId, osType } = session.data || {};
+      await saveAddress(env, chatId, address);
+      await db.clearSession(env, chatId);
+      await api.sendMessage(env, chatId, '✅ آدرس ثبت شد.', await menuKeyboardFor(env, chatId));
+      await continueCheckout(env, chatId, productId, osType);
+      return;
+    }
+  }
+
   if (session.state === 'awaiting_discount_code') {
     if (text === '🔙 انصراف' || text === '/cancel') {
       await db.clearSession(env, chatId);
@@ -442,9 +466,7 @@ export async function handleMessage(env, message) {
 
     const product = await getFullProduct(env, productId);
     const title = escapeHtml(product?.title || boundOrder?.product_title || info.title || productId);
-    const basePrice = resolvePrice(product, osType);
-    const discountAmount = Math.round((basePrice * discountPercent) / 100);
-    const discountedPrice = Math.max(0, basePrice - discountAmount);
+    const discountedPrice = orderPrice(env, product, osType, discountPercent).price;
     // موجودی منفی هرگز نباید به «اعتبار منفی» و افزایش مبلغ فاکتور تبدیل شود
     const wallet = Math.max(0, await db.getWallet(env, chatId));
     const walletUsed = Math.min(wallet, discountedPrice);
@@ -471,10 +493,12 @@ export async function handleMessage(env, message) {
     await api.forwardMessage(env, env.SUPPORT_CHAT_ID || env.ADMIN_CHAT_ID, chatId, message.message_id);
 
     const phone = await db.getPhone(env, chatId);
+    const savedOrder = await db.getOrder(env, rawOrderId);
     await notifyAdmin(
       env,
       `🧾 <b>رسید پرداخت جدید - سفارش #${orderId}</b>\n\n` +
       `🛍 محصول: ${title}\n` +
+      deliveryLines(savedOrder) +
       `💰 مبلغ خالص نهایی: ${money(discountedPrice)} تومان\n` +
       `💼 کیف پول: ${money(walletUsed)} تومان\n` +
       `💳 قابل پرداخت: ${money(payable)} تومان\n` +

@@ -102,7 +102,7 @@ async function main() {
   {
     const env = makeEnv();
     await db.saveOrder(env, '111', 'chatgpt', 'ChatGPT', { amount: 500000, walletUsed: 20000, status: 'confirmed' });
-    await db.saveOrder(env, '333', 'capcut', 'CapCut Pro', { osType: 'ios', amount: 380000, status: 'rejected' });
+    await db.saveOrder(env, '333', 'capcut', 'CapCut Pro', { osType: 'p3', amount: 380000, status: 'rejected' });
     await db.saveOrder(env, '222', 'custom_bot', 'ساخت ربات', { status: 'new', note: 'فروشگاه لباس' });
     calls.length = 0;
     await handleCallbackQuery(env, cb(ADMIN, 'adm_xls:orders'));
@@ -114,7 +114,7 @@ async function main() {
     const chat = rows.find((r) => r[col('محصول')] === 'ChatGPT');
     assert.equal(chat[col('نقدی')], 480000);
     assert.equal(chat[col('وضعیت')], '✅ تایید نهایی ادمین', 'Persian status label');
-    assert.equal(rows.find((r) => r[col('محصول')] === 'CapCut Pro')[col('نسخه')], 'آیفون');
+    assert.equal(rows.find((r) => r[col('محصول')] === 'CapCut Pro')[col('تعداد / تحویل')], '۳ عدد · 🏬 تحویل حضوری');
     const bot = rows.find((r) => r[col('محصول')] === 'ساخت ربات');
     assert.equal(bot[col('مبلغ (تومان)')], null, 'custom bot has no amount');
     assert.equal(bot[col('یادداشت')], 'فروشگاه لباس');

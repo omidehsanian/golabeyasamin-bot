@@ -1,9 +1,22 @@
 import * as api from './api.js';
 import * as db from './db.js';
 import * as KB from './keyboards.js';
-import { escapeHtml, getFullProduct, resolvePrice } from './products.js';
+import { escapeHtml, getFullProduct, orderPrice, parseVariant, variantCode } from './products.js';
 import { cashbackPercent, money, referralCommissionPercent, referralReward, isAdmin, isSuperAdmin } from './config.js';
-import { broadcastStatusText, canProceed, menuKeyboardFor, notifyAdmin, resumeCheckout, showPayment } from './flows.js';
+import {
+  askDelivery,
+  askQuantity,
+  broadcastStatusText,
+  canProceed,
+  chooseDelivery,
+  continueCheckout,
+  deliveryLines,
+  getSavedAddress,
+  menuKeyboardFor,
+  notifyAdmin,
+  resumeCheckout,
+  showPayment,
+} from './flows.js';
 import { sendLastOrders, sendOrdersExcel, sendOrdersReport, showCategoryMenu, showOrdersPanel } from './admin_orders.js';
 import { sendUsersExcel } from './admin_users.js';
 import { handleProductCallback, isProductCallback } from './admin_products.js';
@@ -17,7 +30,7 @@ export async function handleCallback(env, callbackQuery) {
 
   // دکمه‌های مدیریتی فقط برای سوپرادمین
   // نام کاربری تلگرام در مراحل خرید (برای جزئیات سفارش در پنل ادمین)
-  if (/^(buy|os|rcpt|wpay|walletpay|receipt):/.test(data)) {
+  if (/^(buy|qty|os|addr_ok|rcpt|wpay|walletpay|receipt):/.test(data)) {
     await db.rememberUsername(env, actorId, callbackQuery.from?.username);
   }
 
@@ -104,10 +117,9 @@ export async function handleCallback(env, callbackQuery) {
     return;
   }
 
-  if (data.startsWith('os:')) {
-    const parts = data.split(':');
-    const productId = parts[1];
-    const osType = parts[2];
+  // مراحل خرید: buy (تعداد) ← qty (روش تحویل) ← os (آدرس / کد تخفیف) ← addr_ok (آدرس ذخیره‌شده)
+  if (/^(buy|qty|os|addr_ok):/.test(data)) {
+    const [action, productId, arg] = data.split(':');
     await api.answerCallbackQuery(env, callbackId);
 
     const registered = await db.isRegistered(env, chatId);
@@ -116,42 +128,20 @@ export async function handleCallback(env, callbackQuery) {
       return;
     }
 
-    if (osType === 'android') {
-      const product = await getFullProduct(env, productId);
-      if (product && (product.androidFileId || product.androidLink)) {
-        if (product.androidFileId) {
-          await api.sendDocument(env, chatId, product.androidFileId, `📱 نسخه اندروید «${product.title}»`);
-        } else {
-          await api.sendMessage(env, chatId, `🔗 لینک دانلود:\n${product.androidLink}`);
-        }
+    if (action === 'buy') {
+      await askQuantity(env, chatId, productId);
+    } else if (action === 'qty') {
+      await askDelivery(env, chatId, productId, parseVariant(variantCode('pickup', arg)).quantity);
+    } else if (action === 'os') {
+      await chooseDelivery(env, chatId, productId, parseVariant(arg).delivery ? arg : variantCode('pickup', 1));
+    } else {
+      if (!(await getSavedAddress(env, chatId))) {
+        await chooseDelivery(env, chatId, productId, arg);
         return;
       }
-    }
-
-    const discountActive = await db.isDiscountActive(env);
-    if (discountActive) {
-      await api.sendMessage(env, chatId, '🎟️ آیا کد تخفیف دارید؟', KB.discountPromptKeyboard(productId, osType));
-    } else {
-      await showPayment(env, chatId, productId, osType, 0);
-    }
-    return;
-  }
-
-  if (data.startsWith('buy:')) {
-    const productId = data.split(':')[1];
-    await api.answerCallbackQuery(env, callbackId);
-
-    const registered = await db.isRegistered(env, chatId);
-    if (!registered) {
-      await api.sendMessage(env, chatId, '⚠️ برای ادامه خرید و ثبت سفارش ابتدا باید ثبت‌نام کنید:', KB.registerKeyboard());
-      return;
-    }
-
-    const discountActive = await db.isDiscountActive(env);
-    if (discountActive) {
-      await api.sendMessage(env, chatId, '🎟️ آیا کد تخفیف دارید؟', KB.discountPromptKeyboard(productId, ''));
-    } else {
-      await showPayment(env, chatId, productId, '', 0);
+      await db.clearSession(env, chatId);
+      await api.sendMessage(env, chatId, '✅ سفارش به همین آدرس ارسال می‌شود.', await menuKeyboardFor(env, chatId));
+      await continueCheckout(env, chatId, productId, arg);
     }
     return;
   }
@@ -267,9 +257,7 @@ export async function handleCallback(env, callbackQuery) {
     const product = await getFullProduct(env, productId);
     if (!product) return;
 
-    const basePrice = resolvePrice(product, osType);
-    const discountAmount = Math.round((basePrice * discountPercent) / 100);
-    const finalPrice = Math.max(0, basePrice - discountAmount);
+    const finalPrice = orderPrice(env, product, osType, discountPercent).price;
 
     // بررسی موجودی و کسر آن به‌صورت اتمیک در دیتابیس انجام می‌شود؛
     // شناسه callback باعث می‌شود ارسال دوباره‌ی همین کلیک سفارش دوم نسازد.
@@ -438,9 +426,8 @@ async function payOrderFromWallet(env, chatId, callbackId, order) {
     await api.answerCallbackQuery(env, callbackId, { text: '⚠️ این محصول در حال حاضر قابل خرید نیست.', show_alert: true });
     return;
   }
-  const basePrice = resolvePrice(product, order.os_type || '');
   const discountPercent = Number(order.discount_percent) || 0;
-  const finalPrice = Math.max(0, basePrice - Math.round((basePrice * discountPercent) / 100));
+  const finalPrice = orderPrice(env, product, order.os_type || '', discountPercent).price;
 
   const result = await db.payPendingOrderWithWallet(env, order.id, chatId, finalPrice);
   const orderNo = `1000${order.id}`;
@@ -451,7 +438,7 @@ async function payOrderFromWallet(env, chatId, callbackId, order) {
     await api.sendMessage(env, chatId, `✅ مبلغ ${money(result.order.amount)} تومان از کیف پول شما کسر شد.\nسفارش <b>${orderNo}</b> ثبت شد.`);
     await notifyAdmin(
       env,
-      `💼 <b>خرید با کیف پول (سفارش #${orderNo})</b>\nمحصول: ${escapeHtml(product.title)}\nمبلغ: ${money(result.order.amount)} تومان`
+      `💼 <b>خرید با کیف پول (سفارش #${orderNo})</b>\nمحصول: ${escapeHtml(product.title)}\n${deliveryLines(result.order)}مبلغ: ${money(result.order.amount)} تومان`
     );
   } else if (result.reason === 'duplicate') {
     await api.answerCallbackQuery(env, callbackId, { text: '✅ این سفارش قبلاً پرداخت شده است.' });

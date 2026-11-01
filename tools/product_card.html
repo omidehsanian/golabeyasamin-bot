@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<!-- قالب عکس محصول؛ پارامترها در hash به‌صورت JSON: {"title","sub","c1","c2","liquid","motif"} -->
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;700;900&display=block" rel="stylesheet">
+<style>
+  html, body { margin: 0; width: 1080px; height: 1080px; overflow: hidden; }
+  body { font-family: 'Vazirmatn', Tahoma, sans-serif; background: var(--bg); }
+  .card { position: relative; width: 1080px; height: 1080px; background:
+    radial-gradient(circle at 50% 38%, #ffffffcc 0, #ffffff00 46%),
+    linear-gradient(160deg, var(--c2), var(--c1)); }
+  svg { position: absolute; inset: 0; }
+  .title { position: absolute; left: 0; right: 0; bottom: 118px; text-align: center;
+    font-size: 92px; font-weight: 900; color: #fff; text-shadow: 0 4px 18px #0004; }
+  .sub { position: absolute; left: 0; right: 0; bottom: 64px; text-align: center;
+    font-size: 36px; font-weight: 400; color: #ffffffe6; letter-spacing: .5px; }
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <svg id="art" viewBox="0 0 1080 1080" xmlns="http://www.w3.org/2000/svg"></svg>
+  <div class="title" id="title"></div>
+  <div class="sub" id="sub"></div>
+</div>
+<script>
+const p = JSON.parse(decodeURIComponent(location.hash.slice(1)));
+document.documentElement.style.setProperty('--c1', p.c1);
+document.documentElement.style.setProperty('--c2', p.c2);
+document.getElementById('title').textContent = p.title;
+document.getElementById('sub').textContent = p.sub;
+
+const leaf = (x, y, r, s, col) =>
+  `<g transform="translate(${x} ${y}) rotate(${r}) scale(${s})"><path d="M0 0 C 40 -60 120 -60 160 0 C 120 60 40 60 0 0 Z" fill="${col}"/><path d="M8 0 L150 0" stroke="#ffffff88" stroke-width="4"/></g>`;
+const rose = (x, y, s, col) => {
+  let g = `<g transform="translate(${x} ${y}) scale(${s})">`;
+  for (let i = 0; i < 8; i++) g += `<ellipse rx="34" ry="54" transform="rotate(${i * 45}) translate(0 -38)" fill="${col}" opacity=".85"/>`;
+  for (let i = 0; i < 5; i++) g += `<ellipse rx="22" ry="34" transform="rotate(${i * 72 + 20}) translate(0 -18)" fill="${col}" stroke="#ffffff55" stroke-width="3"/>`;
+  return g + `<circle r="16" fill="#ffffff55"/></g>`;
+};
+const blossom = (x, y, s, col) => {
+  let g = `<g transform="translate(${x} ${y}) scale(${s})">`;
+  for (let i = 0; i < 5; i++) g += `<ellipse rx="26" ry="50" transform="rotate(${i * 72}) translate(0 -42)" fill="#fff" stroke="${col}" stroke-width="3"/>`;
+  return g + `<circle r="18" fill="${col}"/></g>`;
+};
+const stick = (x, y, r, col) =>
+  `<g transform="translate(${x} ${y}) rotate(${r})"><rect x="-150" y="-20" width="300" height="40" rx="18" fill="${col}"/><path d="M-140 -6 H140" stroke="#0002" stroke-width="5"/><path d="M-140 8 H140" stroke="#fff3" stroke-width="3"/></g>`;
+const seeds = (x, y, col) => {
+  let g = '';
+  const pts = [[0,0,20],[50,-30,-30],[100,10,60],[30,50,-10],[-50,30,40],[80,70,15],[-30,-40,70]];
+  for (const [dx, dy, r] of pts) g += `<ellipse cx="${x + dx}" cy="${y + dy}" rx="30" ry="11" transform="rotate(${r} ${x + dx} ${y + dy})" fill="${col}"/>`;
+  return g;
+};
+const catkin = (x, y, r, col) => {
+  let g = `<g transform="translate(${x} ${y}) rotate(${r})"><path d="M0 0 L0 -250" stroke="#7a5a3a" stroke-width="7"/>`;
+  for (let i = 0; i < 3; i++) g += `<ellipse cx="${(i % 2 ? 22 : -22)}" cy="${-70 - i * 70}" rx="26" ry="44" fill="${col}"/>`;
+  return g + '</g>';
+};
+const frond = (x, y, r, col) => {
+  let g = `<g transform="translate(${x} ${y}) rotate(${r})"><path d="M0 0 L0 -260" stroke="${col}" stroke-width="6"/>`;
+  for (let i = 1; i < 12; i++) g += `<path d="M0 ${-i * 22} l ${i % 2 ? 60 : -60} -40" stroke="${col}" stroke-width="5" stroke-linecap="round"/>`;
+  return g + '</g>';
+};
+
+const motifs = {
+  rose: (c) => rose(250, 330, 1.5, c) + rose(840, 300, 1.1, c) + leaf(170, 520, -30, 0.9, '#2e7d32cc') + leaf(830, 470, 200, 0.8, '#2e7d32cc'),
+  leaf: (c) => leaf(130, 360, -35, 1.4, c) + leaf(220, 560, 10, 1.1, c) + leaf(950, 320, 215, 1.3, c) + leaf(870, 560, 170, 1.0, c),
+  blossom: (c) => blossom(240, 300, 1.4, c) + blossom(850, 340, 1.1, c) + leaf(160, 520, -20, 0.9, '#558b2fcc') + leaf(900, 520, 200, 0.8, '#558b2fcc'),
+  stick: (c) => stick(230, 330, -30, c) + stick(240, 400, -18, c) + stick(850, 380, 25, c),
+  seeds: (c) => seeds(170, 340, c) + seeds(810, 380, c),
+  catkin: (c) => catkin(220, 600, -20, c) + catkin(300, 620, 5, c) + catkin(860, 600, 20, c),
+  frond: (c) => frond(200, 640, -25, c) + frond(280, 640, -5, c) + frond(880, 640, 25, c),
+};
+
+// بطری شیشه‌ای با مایع رنگی
+const bottle = `
+  <defs>
+    <linearGradient id="glass" x1="0" x2="1"><stop offset="0" stop-color="#ffffff" stop-opacity=".55"/><stop offset=".5" stop-color="#ffffff" stop-opacity=".18"/><stop offset="1" stop-color="#ffffff" stop-opacity=".5"/></linearGradient>
+    <linearGradient id="liq" x1="0" x2="1"><stop offset="0" stop-color="${p.liquid}" stop-opacity=".95"/><stop offset=".5" stop-color="${p.liquid}" stop-opacity=".7"/><stop offset="1" stop-color="${p.liquid}" stop-opacity=".95"/></linearGradient>
+    <filter id="sh" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="18" stdDeviation="22" flood-opacity=".25"/></filter>
+  </defs>
+  <g filter="url(#sh)">
+    <rect x="490" y="140" width="100" height="70" rx="14" fill="#5d4037"/>
+    <path d="M500 210 H580 V280 C580 320 690 340 690 420 V760 C690 800 660 830 620 830 H460 C420 830 390 800 390 760 V420 C390 340 500 320 500 280 Z" fill="url(#glass)" stroke="#ffffffcc" stroke-width="6"/>
+    <path d="M396 480 H684 V760 C684 796 658 824 620 824 H460 C422 824 396 796 396 760 Z" fill="url(#liq)"/>
+    <rect x="420" y="560" width="240" height="150" rx="18" fill="#fffffff0"/>
+    <rect x="436" y="576" width="208" height="118" rx="12" fill="none" stroke="${p.c1}" stroke-width="4"/>
+    <path d="M418 440 C412 560 414 680 424 780" stroke="#ffffff99" stroke-width="12" fill="none" stroke-linecap="round"/>
+  </g>`;
+
+document.getElementById('art').innerHTML = (motifs[p.motif] || motifs.leaf)(p.accent || p.c1) + bottle +
+  `<text x="540" y="652" text-anchor="middle" font-family="Vazirmatn, Tahoma" font-weight="700" font-size="${p.label.length > 6 ? 40 : 52}" fill="${p.c1}">${p.label}</text>`;
+document.fonts.ready.then(() => document.body.setAttribute('data-ready', '1'));
+</script>
+</body>
+</html>

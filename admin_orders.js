@@ -6,6 +6,7 @@
 import * as api from './api.js';
 import { money } from './config.js';
 import { adminOrderKeyboard } from './keyboards.js';
+import { variantLabel } from './products.js';
 import { buildXlsx, XLSX_MIME } from './xlsx.js';
 
 export const ORDER_CATEGORIES = {
@@ -69,7 +70,7 @@ export function faTime(sqlTime) {
 
 const walletPart = (o) => Math.max(0, Number(o.wallet_used) || 0);
 const cashPart = (o) => Math.max(0, (Number(o.amount) || 0) - walletPart(o));
-const osLabel = (os) => (os === 'ios' ? ' (آیفون)' : os === 'android' ? ' (اندروید)' : '');
+const osLabel = (v) => (variantLabel(v) ? ` (${variantLabel(v)})` : '');
 
 export function ordersPanelKeyboard() {
   return {
@@ -252,7 +253,7 @@ const ORDER_COLUMNS = [
   { header: 'شماره تماس', width: 15 },
   { header: 'آیدی عددی', width: 14 },
   { header: 'محصول', width: 20 },
-  { header: 'نسخه', width: 9 },
+  { header: 'تعداد / تحویل', width: 22 },
   { header: 'مبلغ (تومان)', type: 'number', width: 14 },
   { header: 'از کیف پول', type: 'number', width: 13 },
   { header: 'نقدی', type: 'number', width: 13 },
@@ -272,7 +273,6 @@ export async function sendOrdersExcel(env, chatId, key, total = null) {
     await api.sendMessage(env, chatId, `${cat.label}\n\n⚠️ هیچ سفارشی در این دسته وجود ندارد.`);
     return;
   }
-  const os = (v) => (v === 'ios' ? 'آیفون' : v === 'android' ? 'اندروید' : '');
   const rows = orders.map((o) => [
     Number(orderNumber(o.id)),
     STATUS_LABELS[o.status] || o.status,
@@ -282,7 +282,7 @@ export async function sendOrdersExcel(env, chatId, key, total = null) {
     o.phone || '',
     o.user_id,
     o.product_title || o.product_id,
-    os(o.os_type),
+    variantLabel(o.os_type),
     o.product_id === 'custom_bot' ? '' : Number(o.amount) || 0,
     o.product_id === 'custom_bot' ? '' : walletPart(o),
     o.product_id === 'custom_bot' ? '' : cashPart(o),

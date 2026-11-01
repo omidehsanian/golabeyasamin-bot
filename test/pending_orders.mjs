@@ -81,7 +81,7 @@ const reminders = (chatId) => sentTo(chatId, (c) => buttonsOf(c).some((d) => Str
 const cancelNotices = (chatId) => sentTo(chatId, (c) => String(c.body.text).includes('لغو شد'));
 
 async function openInvoice(env, chatId, productId = '1') {
-  await handleCallbackQuery(env, cb(chatId, `buy:${productId}`));
+  await handleCallbackQuery(env, cb(chatId, `os:${productId}:p1`));
   return env.DB.prepare("SELECT * FROM orders WHERE user_id = ? AND status = 'pending'").bind(String(chatId)).first();
 }
 async function ageOrder(env, orderId, minutes) {
@@ -119,7 +119,7 @@ test('پیش‌فاکتور یک سفارش pending متصل به دکمه‌ه�
 test('محصول بدون قیمت سفارش pending نمی‌سازد', async () => {
   const { env } = freshEnv();
   await makeUser(env, '111');
-  await handleCallbackQuery(env, cb('111', 'buy:2'));
+  await handleCallbackQuery(env, cb('111', 'os:2:p1'));
   assert.equal(await count(env, 'SELECT COUNT(*) c FROM orders'), 0);
 });
 

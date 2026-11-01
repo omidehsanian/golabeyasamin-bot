@@ -65,17 +65,32 @@ export function registerKeyboard() {
 
 export function productKeyboard(product) {
   const inline_keyboard = [];
-  if (product.needsOs) {
-    inline_keyboard.push([
-      { text: '🍎 نسخه آیفون (iOS)', callback_data: `os:${product.id}:ios` },
-      { text: '🤖 نسخه اندروید', callback_data: `os:${product.id}:android` },
-    ]);
-  } else {
-    inline_keyboard.push([
-      { text: '💳 خرید / ثبت سفارش', callback_data: `buy:${product.id}` },
-    ]);
-  }
+  inline_keyboard.push([
+    { text: '💳 خرید / ثبت سفارش', callback_data: `buy:${product.id}` },
+  ]);
   return { inline_keyboard };
+}
+
+export function quantityKeyboard(productId, choices) {
+  const buttons = choices.map((n) => ({ text: `${n.toLocaleString('fa-IR')} عدد`, callback_data: `qty:${productId}:${n}` }));
+  const inline_keyboard = [];
+  for (let i = 0; i < buttons.length; i += 4) inline_keyboard.push(buttons.slice(i, i + 4));
+  return { inline_keyboard };
+}
+
+export function deliveryKeyboard(productId, quantity) {
+  return {
+    inline_keyboard: [
+      [{ text: '🏬 تحویل حضوری (رایگان)', callback_data: `os:${productId}:p${quantity}` }],
+      [{ text: '🛵 ارسال با پیک', callback_data: `os:${productId}:c${quantity}` }],
+    ],
+  };
+}
+
+export function savedAddressKeyboard(productId, osType) {
+  return {
+    inline_keyboard: [[{ text: '✅ ارسال به همین آدرس', callback_data: `addr_ok:${productId}:${osType}` }]],
+  };
 }
 
 export function discountPromptKeyboard(productId, osType) {

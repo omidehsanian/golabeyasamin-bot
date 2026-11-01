@@ -503,10 +503,18 @@ export async function upsertPendingOrder(env, { chatId, productId, productTitle,
   return env.DB.prepare("SELECT * FROM orders WHERE user_id = ? AND status = 'pending'").bind(id).first();
 }
 
+// آدرس ارسال با پیک روی یادداشت سفارش pending (تا در پنل ادمین و پیام رسید دیده شود)
+export async function setPendingOrderNote(env, orderId, chatId, note) {
+  await env.DB.prepare("UPDATE orders SET note = ? WHERE id = ? AND user_id = ? AND status = 'pending'")
+    .bind(note, Number(orderId), String(chatId))
+    .run();
+}
+
+// دکمه‌های قدیمی بدون os_type به سفارش pending همان محصول (با هر تعداد/روش تحویل) وصل می‌شوند
 export async function findPendingOrder(env, chatId, productId, osType = '') {
   return env.DB.prepare(
-    "SELECT * FROM orders WHERE user_id = ? AND status = 'pending' AND product_id = ? AND os_type = ?"
-  ).bind(String(chatId), productId, osType).first();
+    "SELECT * FROM orders WHERE user_id = ? AND status = 'pending' AND product_id = ? AND (os_type = ? OR ? = '')"
+  ).bind(String(chatId), productId, osType, osType).first();
 }
 
 // تغییر مرحله‌ی جاری (invoice / awaiting_receipt) فقط برای سفارش pending خود کاربر

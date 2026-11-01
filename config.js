@@ -58,6 +58,17 @@ export function cashbackPercent(env) {
   return Number.isFinite(percent) && percent > 0 && percent <= 100 ? percent : 0;
 }
 
+// هزینه‌ی ارسال با پیک (تومان) و حداقل مبلغ خرید برای ارسال رایگان؛ تحویل حضوری همیشه رایگان است
+export function courierFee(env) {
+  const n = Number(env?.COURIER_FEE ?? 300000);
+  return Number.isFinite(n) && n >= 0 ? n : 300000;
+}
+
+export function freeShippingMin(env) {
+  const n = Number(env?.FREE_SHIPPING_MIN ?? 5000000);
+  return Number.isFinite(n) && n >= 0 ? n : 5000000;
+}
+
 export function referralCommissionPercent(env) {
   return Number(env?.REFERRAL_COMMISSION_PERCENT || 10);
 }

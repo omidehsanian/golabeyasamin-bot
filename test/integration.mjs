@@ -118,7 +118,7 @@ async function main() {
   await db.setChannelConfirmed(env, FRIEND);
   await handleMessage(env, msg(FRIEND, { contact: { user_id: Number(FRIEND), phone_number: '0912222', first_name: 'F' } }));
   calls.length = 0;
-  await handleCallbackQuery(env, cb(FRIEND, 'buy:1'));
+  await handleCallbackQuery(env, cb(FRIEND, 'os:1:p1'));
   assert.ok(textsSentTo(FRIEND).some((t) => t.includes('پیش‌فاکتور')), 'invoice shown');
   await handleCallbackQuery(env, cb(FRIEND, 'receipt:1:'));
   await handleMessage(env, msg(FRIEND, { photo: [{ file_id: 'receipt-photo' }] }));

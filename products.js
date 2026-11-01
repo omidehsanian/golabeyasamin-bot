@@ -4,7 +4,7 @@
 // products ذخیره می‌شوند. position ترتیب دکمه‌ها در منوی اصلی است (۱ = اولین دکمه) و همیشه
 // پشت‌سرهم ۱..n نگه داشته می‌شود: درج در جایگاه k محصولات k به بعد را یک خانه جلو می‌برد.
 
-import { money } from './config.js';
+import { courierFee, freeShippingMin, money } from './config.js';
 
 export const MAX_TITLE_LENGTH = 40;
 // کپشن عکس در تلگرام حداکثر ۱۰۲۴ کاراکتر است؛ بقیه برای عنوان و قیمت می‌ماند
@@ -109,8 +109,55 @@ export function buildProductCaption(product) {
   return text;
 }
 
-export function resolvePrice(product) {
-  return product ? product.price || 0 : 0;
+// ----------------------------------------------------
+// تعداد و روش تحویل سفارش در ستون os_type ذخیره می‌شود:
+//   «p3» = ۳ عدد با تحویل حضوری | «c3» = ۳ عدد با ارسال پیک
+// مقدار خالی (سفارش‌های قدیمی) یعنی ۱ عدد بدون هزینه‌ی ارسال.
+// ----------------------------------------------------
+export const MAX_QUANTITY = 20;
+export const QUANTITY_CHOICES = [1, 2, 3, 4, 5, 6, 8, 10];
+
+export function parseVariant(variant) {
+  const m = /^([pc])(\d{1,3})$/.exec(String(variant || ''));
+  if (!m) return { delivery: '', quantity: 1 };
+  const quantity = Math.min(Math.max(1, Number(m[2])), MAX_QUANTITY);
+  return { delivery: m[1] === 'c' ? 'courier' : 'pickup', quantity };
+}
+
+export function variantCode(delivery, quantity) {
+  const q = Math.min(Math.max(1, Math.trunc(Number(quantity) || 1)), MAX_QUANTITY);
+  return `${delivery === 'courier' ? 'c' : 'p'}${q}`;
+}
+
+export function variantLabel(variant) {
+  const { delivery, quantity } = parseVariant(variant);
+  if (!delivery) return '';
+  return `${quantity.toLocaleString('fa-IR')} عدد · ${delivery === 'courier' ? '🛵 ارسال با پیک' : '🏬 تحویل حضوری'}`;
+}
+
+// قیمت کالا (قیمت واحد × تعداد)، بدون هزینه‌ی ارسال
+export function resolvePrice(product, variant = '') {
+  return product ? (product.price || 0) * parseVariant(variant).quantity : 0;
+}
+
+// هزینه‌ی ارسال بر اساس مبلغ کالا بعد از تخفیف
+export function shippingFee(env, variant, itemsTotal) {
+  if (parseVariant(variant).delivery !== 'courier') return 0;
+  return itemsTotal >= freeShippingMin(env) ? 0 : courierFee(env);
+}
+
+// مبلغ نهایی سفارش: تخفیف فقط روی کالا، هزینه‌ی ارسال بعد از تخفیف اضافه می‌شود
+export function orderPrice(env, product, variant = '', discountPercent = 0) {
+  const basePrice = resolvePrice(product, variant);
+  const discountAmount = Math.round((basePrice * discountPercent) / 100);
+  const itemsTotal = Math.max(0, basePrice - discountAmount);
+  const shipping = basePrice > 0 ? shippingFee(env, variant, itemsTotal) : 0;
+  return { basePrice, discountAmount, itemsTotal, shipping, price: itemsTotal + shipping };
+}
+
+export function shippingInfoText(env) {
+  return `🚚 تحویل حضوری: رایگان | ارسال با پیک: ${money(courierFee(env))} تومان\n` +
+    `🎁 خرید بالای ${money(freeShippingMin(env))} تومان: ارسال با پیک رایگان`;
 }
 
 export function escapeHtml(value) {

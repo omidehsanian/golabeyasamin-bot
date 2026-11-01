@@ -132,14 +132,14 @@ async function main() {
     let { env } = makeEnv(ON);
     await setTestPrice(env, 1, 300000);
     calls.length = 0;
-    await handleCallbackQuery(env, cb('222', 'buy:1'));
+    await handleCallbackQuery(env, cb('222', 'os:1:p1'));
     let invoice = calls.find((c) => c.method === 'sendMessage' && c.body.text.includes('پیش‌فاکتور'));
     assert.ok(invoice.body.text.includes('کش‌بک') && invoice.body.text.includes('۱۵٬۰۰۰'), 'invoice shows cashback');
 
     ({ env } = makeEnv());
     await setTestPrice(env, 1, 300000);
     calls.length = 0;
-    await handleCallbackQuery(env, cb('222', 'buy:1'));
+    await handleCallbackQuery(env, cb('222', 'os:1:p1'));
     invoice = calls.find((c) => c.method === 'sendMessage' && c.body.text.includes('پیش‌فاکتور'));
     assert.ok(!invoice.body.text.includes('کش‌بک'), 'no cashback line when disabled');
     console.log('✅ invoice shows cashback only when enabled');

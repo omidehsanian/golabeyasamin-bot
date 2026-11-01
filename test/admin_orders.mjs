@@ -117,7 +117,7 @@ test('۱۰ سفارش آخر با جزئیات کامل: نام، شماره، �
   await makeUser(env, '111', { name: 'سارا', phone: '09121112233', username: 'sara_shop' });
   const ids = [];
   for (let i = 0; i < 12; i++) {
-    ids.push(await db.saveOrder(env, '111', 'capcut', 'CapCut Pro', { osType: 'ios', amount: 400000 + i, walletUsed: 20000, status: 'confirmed' }));
+    ids.push(await db.saveOrder(env, '111', 'capcut', 'CapCut Pro', { osType: 'c2', amount: 400000 + i, walletUsed: 20000, status: 'confirmed' }));
   }
   calls.length = 0;
   await handleCallbackQuery(env, cb(ADMIN, 'adm_ord:confirmed:last'));
@@ -125,7 +125,7 @@ test('۱۰ سفارش آخر با جزئیات کامل: نام، شماره، �
   for (const id of ids.slice(2)) assert.ok(out.includes(`#${orderNumber(id)}`), `سفارش ${id} باید باشد`);
   for (const id of ids.slice(0, 2)) assert.ok(!out.includes(`#${orderNumber(id)}<`), `سفارش قدیمی ${id} نباید باشد`);
   assert.equal((out.match(/🧾 <b>سفارش #/g) || []).length, 10);
-  for (const s of ['سارا', '09121112233', '@sara_shop', '<code>111</code>', 'CapCut Pro (آیفون)', 'کیف پول', 'نقدی', 'تایید نهایی']) {
+  for (const s of ['سارا', '09121112233', '@sara_shop', '<code>111</code>', 'CapCut Pro (۲ عدد · 🛵 ارسال با پیک)', 'کیف پول', 'نقدی', 'تایید نهایی']) {
     assert.ok(out.includes(s), `باید شامل «${s}» باشد`);
   }
   assert.ok(textsTo(ADMIN).every((t) => t.length < 4096));
@@ -157,8 +157,8 @@ test('فاکتورهای باز و لغو خودکار از دید ادمین پ
   await makeUser(env, '111');
   await makeUser(env, '222');
   await setTestPrice(env, 1, 25000);
-  await handleCallbackQuery(env, cb('111', 'buy:1'));
-  await handleCallbackQuery(env, cb('222', 'buy:1'));
+  await handleCallbackQuery(env, cb('111', 'os:1:p1'));
+  await handleCallbackQuery(env, cb('222', 'os:1:p1'));
   const p222 = await env.DB.prepare("SELECT id FROM orders WHERE user_id = '222'").first();
   await env.DB.prepare('UPDATE orders SET created_at = ? WHERE id = ?').bind(db.sqlTime(new Date(Date.now() - 61 * 60000)), p222.id).run();
   await processPendingOrders(env, new Date());
@@ -260,8 +260,8 @@ test('شماره سفارش‌ها: یکتا، بدون استفاده‌ی مج
   await setTestPrice(env, 2, 90000);
 
   const legacy = await db.saveOrder(env, '222', 'capcut', 'CapCut', { amount: 1, status: 'confirmed' });
-  await handleCallbackQuery(env, cb('111', 'buy:1')); // pending
-  await handleCallbackQuery(env, cb('111', 'buy:2')); // قبلی superseded، pending جدید
+  await handleCallbackQuery(env, cb('111', 'os:1:p1')); // pending
+  await handleCallbackQuery(env, cb('111', 'os:2:p1')); // قبلی superseded، pending جدید
   const receipt = await db.saveOrder(env, '222', 'capcut', 'CapCut', { amount: 1, status: 'receipt_sent' });
 
   // حذف آخرین ردیف و درج دوباره: AUTOINCREMENT شماره را دوباره استفاده نمی‌کند
@@ -296,7 +296,7 @@ test('نام کاربری تلگرام در مراحل خرید ذخیره می�
   const { env } = freshEnv();
   await makeUser(env, '111');
   await setTestPrice(env, 1, 25000);
-  await handleCallbackQuery(env, { ...cb('111', 'buy:1'), from: { id: 111, username: 'new_name' } });
+  await handleCallbackQuery(env, { ...cb('111', 'os:1:p1'), from: { id: 111, username: 'new_name' } });
   assert.equal((await db.getUser(env, '111')).username, 'new_name');
 });
 
