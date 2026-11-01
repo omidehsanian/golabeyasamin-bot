@@ -49,5 +49,5 @@ DISCOUNT_CODES = ""                    # مثال: "OFF10:10,VIP20:20"
 # ==========================================
 [[d1_databases]]
 binding = "DB"
-database_name = "shop_bot_db"
-database_id = "8092befb-87cf-4540-8754-487ef42a9d76"
+database_name = "mazchim_db"
+database_id = "707ff48b-910e-4b5a-a4e7-749cdfff5e5c"

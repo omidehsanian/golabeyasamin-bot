@@ -28,7 +28,7 @@
 npm install -g wrangler
 wrangler login
 
-wrangler d1 create shop_bot_db          # database_id خروجی را در wrangler.toml بگذارید
+wrangler d1 create mazchim_db          # database_id خروجی را در wrangler.toml بگذارید
 npm run db:init                          # ساخت جدول‌ها روی دیتابیس remote
 
 wrangler secret put BOT_TOKEN            # توکن ربات جدید از BotFather

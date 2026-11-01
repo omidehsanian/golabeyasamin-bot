@@ -1,13 +1,13 @@
 {
-  "name": "shop-bot",
+  "name": "mazchim",
   "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "db:init": "wrangler d1 execute shop_bot_db --file=./schema.sql --remote",
-    "db:init:local": "wrangler d1 execute shop_bot_db --file=./schema.sql --local",
+    "db:init": "wrangler d1 execute mazchim_db --file=./schema.sql --remote",
+    "db:init:local": "wrangler d1 execute mazchim_db --file=./schema.sql --local",
     "test": "node --no-warnings test/run.mjs && node --no-warnings test/wallet.mjs && node --no-warnings test/pending_orders.mjs && node --no-warnings test/admin_orders.mjs && node --no-warnings test/integration.mjs && node --no-warnings test/broadcast.mjs && node --no-warnings test/admin_extras.mjs && node --no-warnings test/admin_products.mjs && node --no-warnings test/cashback.mjs && node --no-warnings test/excel.mjs"
   },
   "devDependencies": {
