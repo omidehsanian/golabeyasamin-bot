@@ -27,6 +27,19 @@ export function productColumns(env) {
   return Number.isInteger(n) && n >= 1 && n <= 4 ? n : 2;
 }
 
+// لینک چت مستقیم با شماره‌ی پشتیبانی (09xxxxxxxxx → https://t.me/+989xxxxxxxxx)؛ خالی یعنی تنظیم نشده
+export function supportPhoneLink(env) {
+  let digits = String(env?.SUPPORT_PHONE || '').replace(/\D/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits.startsWith('0')) digits = `98${digits.slice(1)}`;
+  return digits.length >= 10 ? `https://t.me/+${digits}` : '';
+}
+
+// اولین محصول منو در یک ردیف تکی (دکمه‌ی ویژه)
+export function productFeaturedFirst(env) {
+  return String(env?.PRODUCT_FEATURED_FIRST || 'false').toLowerCase() === 'true';
+}
+
 export function money(amount) {
   return Number(amount || 0).toLocaleString('fa-IR');
 }

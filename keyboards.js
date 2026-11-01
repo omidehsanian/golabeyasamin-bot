@@ -22,14 +22,20 @@ export const RESERVED_BUTTONS = [
   '🔙 شاید بعدا',
 ];
 
-// products: محصولات به ترتیب position؛ هر ردیف `columns` دکمه
+// چیدمان ردیفی دکمه‌های محصول: هر ردیف `columns` تا؛ با featuredFirst اولین محصول یک ردیف کامل برای خودش دارد
+export function productRows(items, columns = 2, featuredFirst = false) {
+  const rows = [];
+  const start = featuredFirst && items.length ? 1 : 0;
+  if (start) rows.push([items[0]]);
+  for (let i = start; i < items.length; i += columns) rows.push(items.slice(i, i + columns));
+  return rows;
+}
+
+// products: محصولات به ترتیب position
 // opts.superAdmin: سفارشات و پیام همگانی | opts.admin: ساخت/مدیریت محصولات
 export function mainMenuKeyboard(products = [], opts = {}) {
-  const { superAdmin = false, admin = superAdmin, columns = 2, customBot = false } = opts;
-  const keyboard = [];
-  for (let i = 0; i < products.length; i += columns) {
-    keyboard.push(products.slice(i, i + columns).map((p) => ({ text: p.buttonText })));
-  }
+  const { superAdmin = false, admin = superAdmin, columns = 2, featuredFirst = false, customBot = false } = opts;
+  const keyboard = productRows(products, columns, featuredFirst).map((row) => row.map((p) => ({ text: p.buttonText })));
   keyboard.push([{ text: WALLET_BUTTON }, { text: INVITE_BUTTON }]);
   keyboard.push(customBot ? [{ text: SUPPORT_BUTTON }, { text: CUSTOM_BOT_BUTTON }] : [{ text: SUPPORT_BUTTON }]);
 

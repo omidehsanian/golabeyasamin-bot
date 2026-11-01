@@ -11,7 +11,7 @@ import {
   shippingInfoText,
   variantLabel,
 } from './products.js';
-import { cashbackPercent, channelEnabled, customBotEnabled, freeShippingMin, money, isAdmin, isSuperAdmin, productColumns } from './config.js';
+import { cashbackPercent, channelEnabled, customBotEnabled, freeShippingMin, money, isAdmin, isSuperAdmin, productColumns, productFeaturedFirst } from './config.js';
 
 const BROADCAST_SOURCE_KEY = 'broadcast_source';
 
@@ -51,6 +51,7 @@ export async function menuKeyboardFor(env, chatId) {
     superAdmin: isSuperAdmin(env, chatId),
     admin: isAdmin(env, chatId),
     columns: productColumns(env),
+    featuredFirst: productFeaturedFirst(env),
     customBot: customBotEnabled(env),
   });
 }

@@ -27,6 +27,7 @@ crons = ["* * * * *"]
 SHOP_NAME = "فروشگاه"            # نام فروشگاه در پیام خوش‌آمد
 ADMIN_CHAT_ID = "189219108"    # سوپرادمین: همه‌ی امکانات (آیدی عددی؛ در ربات /id بزنید)
 SUPPORT_CHAT_ID = "" # ادمین پشتیبانی: محصولات و تایید سفارش (اگر ندارید همان ADMIN_CHAT_ID)
+SUPPORT_PHONE = "09194013595"         # دکمه‌ی «ارتباط با ادمین» مستقیم چت تلگرام این شماره را باز می‌کند
 SUPPORT_USERNAME = "" # نام کاربری پشتیبانی بدون @ (برای دکمه‌ی «ارتباط با ادمین»)
 BOT_USERNAME = "mazchimbot"      # بدون @ (برای لینک دعوت)
 CHANNEL_USERNAME = ""
@@ -34,7 +35,8 @@ CHANNEL_ENABLED = "false"               # "false" = بدون عضویت اجبا
 REGISTRATION_ENABLED = "true"
 CARD_NUMBER = ""
 CARD_HOLDER = ""
-PRODUCT_COLUMNS = "2"                  # تعداد دکمه‌ی محصول در هر ردیف منو (۱ تا ۴)
+PRODUCT_COLUMNS = "3"                  # تعداد دکمه‌ی محصول در هر ردیف منو (۱ تا ۴)
+PRODUCT_FEATURED_FIRST = "true"        # "true" = اولین محصول (جایگاه ۱) در یک ردیف تکی
 CUSTOM_BOT_ENABLED = "false"           # "true" = دکمه‌ی «🤖 ساخت ربات» (فرم سفارش ساخت ربات)
 
 REFERRAL_REWARD = "10000"

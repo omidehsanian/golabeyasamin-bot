@@ -2,7 +2,7 @@ import * as api from './api.js';
 import * as db from './db.js';
 import * as KB from './keyboards.js';
 import { findProductIdByButton, getFullProduct, orderPrice, escapeHtml } from './products.js';
-import { isSuperAdmin, isAdmin, money, signupBonus, shopName, customBotEnabled } from './config.js';
+import { isSuperAdmin, isAdmin, money, signupBonus, shopName, customBotEnabled, supportPhoneLink } from './config.js';
 import {
   menuKeyboardFor,
   canProceed,
@@ -372,6 +372,14 @@ export async function handleMessage(env, message) {
   }
 
   if (text === '📞 ارتباط با ادمین') {
+    // با شماره‌ی پشتیبانی: دکمه‌ی شیشه‌ای که مستقیم چت را باز می‌کند (خود شماره در متن نمایش داده نمی‌شود)
+    const phoneLink = supportPhoneLink(env);
+    if (phoneLink) {
+      await api.sendMessage(env, chatId, '📞 برای گفتگو با پشتیبانی روی دکمه‌ی زیر بزنید:', {
+        inline_keyboard: [[{ text: '💬 پیام به پشتیبانی', url: phoneLink }]],
+      });
+      return;
+    }
     const supportId = env.SUPPORT_CHAT_ID || env.ADMIN_CHAT_ID;
     const supportName = env.SUPPORT_USERNAME ? `@${String(env.SUPPORT_USERNAME).replace('@', '')}` : 'پشتیبانی';
     await api.sendMessage(env, chatId, `📞 آیدی پشتیبانی:\n👉 <a href="tg://user?id=${supportId}">${escapeHtml(supportName)}</a>`, await menuKeyboardFor(env, chatId));

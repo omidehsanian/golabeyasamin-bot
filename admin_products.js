@@ -18,8 +18,8 @@
 
 import * as api from './api.js';
 import * as db from './db.js';
-import { cancelKeyboard, RESERVED_BUTTONS } from './keyboards.js';
-import { money, productColumns } from './config.js';
+import { cancelKeyboard, productRows, RESERVED_BUTTONS } from './keyboards.js';
+import { money, productColumns, productFeaturedFirst } from './config.js';
 import { menuKeyboardFor } from './flows.js';
 import {
   MAX_DESCRIPTION_LENGTH,
@@ -121,12 +121,9 @@ function positionKeyboard(max) {
 function layoutPreview(env, products, title, position, exceptId = null) {
   const names = products.filter((p) => p.id !== exceptId).map((p) => p.title);
   names.splice(position - 1, 0, `⭐ ${title}`);
-  const columns = productColumns(env);
-  const rows = [];
-  for (let i = 0; i < names.length; i += columns) {
-    rows.push(names.slice(i, i + columns).map((n) => `[ ${escapeHtml(n)} ]`).join('  '));
-  }
-  return rows.join('\n');
+  return productRows(names, productColumns(env), productFeaturedFirst(env))
+    .map((row) => row.map((n) => `[ ${escapeHtml(n)} ]`).join('  '))
+    .join('\n');
 }
 
 function numberedList(products) {
