@@ -172,6 +172,7 @@ export async function getAllUsersDetails(env) {
 export async function deleteUser(env, chatId) {
   await env.DB.prepare('DELETE FROM users WHERE chat_id = ?').bind(String(chatId)).run();
   await env.DB.prepare('DELETE FROM sessions WHERE chat_id = ?').bind(String(chatId)).run();
+  await env.DB.prepare('DELETE FROM cart_items WHERE chat_id = ?').bind(String(chatId)).run();
 }
 
 // ==========================================
@@ -503,13 +504,6 @@ export async function upsertPendingOrder(env, { chatId, productId, productTitle,
   return env.DB.prepare("SELECT * FROM orders WHERE user_id = ? AND status = 'pending'").bind(id).first();
 }
 
-// آدرس ارسال با پیک روی یادداشت سفارش pending (تا در پنل ادمین و پیام رسید دیده شود)
-export async function setPendingOrderNote(env, orderId, chatId, note) {
-  await env.DB.prepare("UPDATE orders SET note = ? WHERE id = ? AND user_id = ? AND status = 'pending'")
-    .bind(note, Number(orderId), String(chatId))
-    .run();
-}
-
 // دکمه‌های قدیمی بدون os_type به سفارش pending همان محصول (با هر تعداد/روش تحویل) وصل می‌شوند
 export async function findPendingOrder(env, chatId, productId, osType = '') {
   return env.DB.prepare(
@@ -589,6 +583,100 @@ export async function payPendingOrderWithWallet(env, orderId, chatId, price) {
   if (fresh.status === 'paid_by_wallet') return { ok: true, reason: 'duplicate', order: fresh };
   if (fresh.status === 'pending') return { ok: false, reason: 'insufficient_wallet', order: fresh };
   return { ok: false, reason: 'not_active', order: fresh };
+}
+
+// ==========================================
+// پروفایل آدرس و آدرس سفارش‌های پیک/پست
+// ==========================================
+
+const LIVE_ORDER_STATUSES_SQL = "'receipt_sent', 'confirmed', 'paid_by_wallet'";
+// «منتظر آدرس»: پرداخت انجام شده ولی پروفایل کامل نشده (پنل ادمین هم از همین شرط استفاده می‌کند)
+export const AWAITING_ADDRESS_SQL = `o.address_requested_at IS NOT NULL AND o.address_done_at IS NULL AND o.status IN (${LIVE_ORDER_STATUSES_SQL})`;
+const WALLET_ADDRESS_EDIT_MINUTES = 24 * 60;
+export const ADDRESS_REMINDER_MINUTES = [60, 24 * 60];
+export const ADDRESS_ALERT_MINUTES = 48 * 60;
+
+export async function getAddressProfile(env, chatId) {
+  const u = await getUser(env, chatId);
+  const address = String(u?.address || '').trim();
+  const postal = String(u?.postal_code || '').trim();
+  const postalSkipped = Boolean(u?.postal_skipped);
+  return { address, postal, postalSkipped, complete: Boolean(address && (postal || postalSkipped)) };
+}
+
+export async function saveProfileAddress(env, chatId, address) {
+  await ensureUser(env, chatId);
+  await env.DB.prepare('UPDATE users SET address = ? WHERE chat_id = ?').bind(address, String(chatId)).run();
+}
+
+export async function saveProfilePostal(env, chatId, postal, skipped = false) {
+  await ensureUser(env, chatId);
+  await env.DB.prepare('UPDATE users SET postal_code = ?, postal_skipped = ? WHERE chat_id = ?')
+    .bind(postal, skipped ? 1 : 0, String(chatId))
+    .run();
+}
+
+// کپی پروفایل روی سفارش؛ با پروفایل ناقص سفارش «منتظر آدرس» می‌ماند
+export async function attachAddressToOrder(env, orderId, profile, now = new Date()) {
+  const nowSql = sqlTime(now);
+  await env.DB.prepare(
+    `UPDATE orders SET address_requested_at = COALESCE(address_requested_at, ?), ship_address = ?, ship_postal = ?, address_done_at = ?
+     WHERE id = ?`
+  ).bind(nowSql, profile.address, profile.postal, profile.complete ? nowSql : null, Number(orderId)).run();
+  return getOrder(env, Number(orderId));
+}
+
+// تغییر پروفایل روی سفارش‌های منتظر آدرس، سفارش‌های در حال بررسی و خرید کیف پولِ ۲۴ ساعت اخیر اعمال می‌شود.
+// سفارش تاییدشده‌ای که آدرس دارد دست نمی‌خورد، چون ممکن است ارسال شده باشد.
+export async function applyProfileToOrders(env, chatId, profile, now = new Date()) {
+  const { results } = await env.DB.prepare(
+    `SELECT o.* FROM orders o
+     WHERE o.user_id = ? AND o.address_requested_at IS NOT NULL
+       AND ((${AWAITING_ADDRESS_SQL}) OR o.status = 'receipt_sent' OR (o.status = 'paid_by_wallet' AND o.created_at > ?))`
+  ).bind(String(chatId), minutesBefore(now, WALLET_ADDRESS_EDIT_MINUTES)).all();
+
+  const changed = [];
+  for (const order of results || []) {
+    const same = (order.ship_address || '') === profile.address && (order.ship_postal || '') === profile.postal;
+    if (same && Boolean(order.address_done_at) === profile.complete) continue;
+    changed.push(await attachAddressToOrder(env, order.id, profile, now));
+  }
+  return changed;
+}
+
+export async function listAddressFollowups(env, now, limit) {
+  const [first, second] = ADDRESS_REMINDER_MINUTES.map((m) => minutesBefore(now, m));
+  const { results } = await env.DB.prepare(
+    `SELECT o.*, u.phone, u.full_name, u.first_name FROM orders o LEFT JOIN users u ON u.chat_id = o.user_id
+     WHERE ${AWAITING_ADDRESS_SQL}
+       AND ((COALESCE(o.address_reminders, 0) = 0 AND o.address_requested_at <= ?)
+         OR (COALESCE(o.address_reminders, 0) = 1 AND o.address_requested_at <= ?)
+         OR (o.address_admin_alerted_at IS NULL AND o.address_requested_at <= ?))
+     ORDER BY o.address_requested_at LIMIT ?`
+  ).bind(first, second, minutesBefore(now, ADDRESS_ALERT_MINUTES), limit).all();
+  return results || [];
+}
+
+export async function claimAddressReminder(env, orderId, reminders) {
+  const result = await env.DB.prepare(
+    `UPDATE orders SET address_reminders = ?
+     WHERE id = ? AND COALESCE(address_reminders, 0) = ? AND address_done_at IS NULL`
+  ).bind(reminders + 1, Number(orderId), reminders).run();
+  return result.meta.changes === 1;
+}
+
+export async function releaseAddressReminder(env, orderId, reminders, error) {
+  await env.DB.prepare('UPDATE orders SET address_reminders = ?, notify_error = ? WHERE id = ?')
+    .bind(reminders, String(error || ''), Number(orderId))
+    .run();
+}
+
+export async function claimAddressAlert(env, orderId, now = new Date()) {
+  const result = await env.DB.prepare(
+    `UPDATE orders SET address_admin_alerted_at = ?
+     WHERE id = ? AND address_admin_alerted_at IS NULL AND address_done_at IS NULL`
+  ).bind(sqlTime(now), Number(orderId)).run();
+  return result.meta.changes === 1;
 }
 
 // ---- زمان‌بندی (Cron): یادآوری و لغو ----

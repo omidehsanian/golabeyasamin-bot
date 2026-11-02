@@ -6,7 +6,7 @@
 
 import * as api from './api.js';
 import * as db from './db.js';
-import { resumeKeyboard } from './keyboards.js';
+import { fillAddressKeyboard, resumeKeyboard } from './keyboards.js';
 import { escapeHtml } from './products.js';
 
 const MAX_NOTIFY_ATTEMPTS = 3;
@@ -14,6 +14,9 @@ const MAX_NOTIFY_ATTEMPTS = 3;
 const CANCEL_BATCH = 6;
 const NOTICE_BATCH = 6;
 const REMINDER_BATCH = 8;
+const ADDRESS_BATCH = 4;
+// پیام پیگیری آدرس فقط در این بازه به وقت تهران فرستاده می‌شود
+const ADDRESS_HOURS = { from: 9, to: 22 };
 
 // نتیجه‌ی ارسال: sent | retry (خطای موقت قطعی از تلگرام) | failed (دائمی یا نامعلوم)
 async function deliver(env, chatId, text, keyboard = null) {
@@ -69,6 +72,62 @@ function adminCancelText(orders) {
   );
 }
 
+function tehranHour(now) {
+  return Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Tehran', hour: 'numeric', hourCycle: 'h23' }).format(now));
+}
+
+function addressReminderText(order) {
+  return (
+    `📍 <b>سفارش شما منتظر آدرس است</b>\n\n` +
+    `🧾 شماره سفارش: <b>1000${order.id}</b>\n` +
+    `🛍 ${escapeHtml(order.product_title || order.product_id)}\n\n` +
+    `پرداخت شما ثبت شده؛ برای ارسال سفارش فقط آدرس و کد پستی لازم است. دکمه زیر را بزنید 👇`
+  );
+}
+
+function addressAlertText(order, reason) {
+  const name = order.full_name || order.first_name || 'بدون نام';
+  return (
+    `☎️ <b>سفارش #1000${order.id} آدرس ندارد — با مشتری تماس بگیرید</b>\n${reason}\n\n` +
+    `🛍 ${escapeHtml(order.product_title || order.product_id)}\n` +
+    `👤 ${escapeHtml(name)}\n` +
+    `📱 <code>${escapeHtml(order.phone || 'بدون شماره')}</code>\n` +
+    `جزئیات: <code>/order 1000${order.id}</code>`
+  );
+}
+
+// پیگیری سفارش‌های پرداخت‌شده‌ی بدون آدرس: دو یادآوری به مشتری، بعد تماس ادمین.
+// اگر پیام به مشتری نرسد (مثلاً ربات را بلاک کرده) ادمین همان موقع خبردار می‌شود.
+async function processAddressFollowups(env, now, summary) {
+  const hour = tehranHour(now);
+  if (hour < ADDRESS_HOURS.from || hour >= ADDRESS_HOURS.to) return;
+
+  const alert = async (order, reason) => {
+    if (!env.ADMIN_CHAT_ID || !(await db.claimAddressAlert(env, order.id, now))) return;
+    await deliver(env, env.ADMIN_CHAT_ID, addressAlertText(order, reason));
+    summary.addressAlerts++;
+  };
+
+  for (const order of await db.listAddressFollowups(env, now, ADDRESS_BATCH)) {
+    const elapsed = (now.getTime() - parseSqlTime(order.address_requested_at).getTime()) / 60000;
+    if (elapsed >= db.ADDRESS_ALERT_MINUTES && !order.address_admin_alerted_at) {
+      await alert(order, '۴۸ ساعت از پرداخت گذشته و مشتری آدرس را ثبت نکرده است.');
+      continue;
+    }
+    const reminders = Number(order.address_reminders) || 0;
+    if (reminders >= db.ADDRESS_REMINDER_MINUTES.length || elapsed < db.ADDRESS_REMINDER_MINUTES[reminders]) continue;
+    if (!(await db.claimAddressReminder(env, order.id, reminders))) continue;
+    const result = await deliver(env, order.user_id, addressReminderText(order), fillAddressKeyboard());
+    summary.addressReminders++;
+    if (result.outcome === 'retry') {
+      await db.releaseAddressReminder(env, order.id, reminders, result.error);
+    } else if (result.outcome === 'failed') {
+      await db.recordNotifyError(env, order.id, result.error);
+      await alert(order, 'پیام یادآوری به مشتری نرسید (احتمالاً ربات را بلاک کرده است).');
+    }
+  }
+}
+
 export async function processPendingOrders(env, now = new Date()) {
   const summary = {
     cancelled: 0,
@@ -78,6 +137,8 @@ export async function processPendingOrders(env, now = new Date()) {
     reminded: 0,
     reminderRetry: 0,
     reminderFailed: 0,
+    addressReminders: 0,
+    addressAlerts: 0,
   };
 
   // ۱) لغو سفارش‌های منقضی (قبل از یادآوری، تا برای سفارش منقضی یادآوری نرود)
@@ -125,10 +186,14 @@ export async function processPendingOrders(env, now = new Date()) {
     }
   }
 
+  // ۴) پیگیری آدرس سفارش‌های پیک/پست
+  await processAddressFollowups(env, now, summary);
+
   // تعداد درخواست‌های ارسالی این اجرا (بقیه‌ی سهمیه به پیام همگانی می‌رسد)
   summary.messages =
     summary.cancelNotified + summary.cancelNoticeRetry + summary.cancelNoticeFailed +
-    summary.reminded + summary.reminderRetry + summary.reminderFailed + (summary.adminNotice ? 1 : 0);
+    summary.reminded + summary.reminderRetry + summary.reminderFailed + (summary.adminNotice ? 1 : 0) +
+    summary.addressReminders + summary.addressAlerts;
 
   return summary;
 }

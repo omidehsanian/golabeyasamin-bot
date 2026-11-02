@@ -1,4 +1,4 @@
-// تست‌های مراحل خرید: تعداد ← روش تحویل ← آدرس پیک ← پیش‌فاکتور با هزینه‌ی ارسال
+// تست‌های هزینه‌ی ارسال و دکمه‌های قدیمی خرید تک‌محصولی (سبد خرید در test/cart.mjs است)
 import fs from 'node:fs';
 import path from 'node:path';
 import assert from 'node:assert/strict';
@@ -83,74 +83,32 @@ test('محاسبه‌ی هزینه‌ی ارسال', () => {
   assert.equal(orderPrice({ COURIER_FEE: '50000', FREE_SHIPPING_MIN: '1000000' }, product, 'c2').shipping, 0);
 });
 
-test('خرید ← تعداد ← روش تحویل ← پیش‌فاکتور حضوری', async () => {
-  const env = freshEnv();
-  await makeUser(env, '111');
-  await setTestPrice(env, 1, 350000);
-
-  await handleCallbackQuery(env, cb('111', 'buy:1'));
-  assert.ok(buttonsOf(lastMessage('111')).includes('qty:1:3'), 'دکمه‌های تعداد');
-  assert.equal(await pending(env, '111'), null, 'قبل از انتخاب تحویل سفارشی ساخته نمی‌شود');
-
-  await handleCallbackQuery(env, cb('111', 'qty:1:3'));
-  assert.deepEqual(buttonsOf(lastMessage('111')), ['os:1:p3', 'os:1:c3']);
-
-  await handleCallbackQuery(env, cb('111', 'os:1:p3'));
-  const o = await pending(env, '111');
-  assert.equal(o.os_type, 'p3');
-  assert.equal(o.amount, 1050000);
-  const text = lastMessage('111').body.text;
-  assert.match(text, /تحویل حضوری: رایگان/);
-  assert.match(text, /۱٬۰۵۰٬۰۰۰/);
+test('هزینه‌ی پست و کد روش تحویل', () => {
+  assert.deepEqual(parseVariant('s3'), { delivery: 'post', quantity: 3 });
+  assert.deepEqual(parseVariant('c'), { delivery: 'courier', quantity: 1 });
+  assert.equal(variantCode('post', 2), 's2');
+  const product = { price: 600000 };
+  assert.equal(orderPrice({ POST_FEE: '90000' }, product, 's2').shipping, 90000);
+  assert.equal(orderPrice({ POST_FEE: '90000' }, product, 's9').shipping, 0, 'آستانه‌ی ارسال رایگان شامل پست هم می‌شود');
+  assert.equal(orderPrice({ POST_FEE: '90000' }, product, 'p2').shipping, 0);
 });
 
-test('ارسال با پیک: آدرس گرفته می‌شود و هزینه روی فاکتور می‌آید', async () => {
+test('دکمه‌ی قدیمی روش تحویل: پیش‌فاکتور بدون پرسیدن آدرس', async () => {
   const env = freshEnv();
   await makeUser(env, '111');
   await setTestPrice(env, 1, 600000);
 
   await handleCallbackQuery(env, cb('111', 'os:1:c2'));
-  assert.equal(await pending(env, '111'), null);
-  assert.equal((await db.getSession(env, '111')).state, 'awaiting_address');
-
-  await say(env, '111', { text: 'کوتاه' });
-  assert.equal((await db.getSession(env, '111')).state, 'awaiting_address', 'آدرس کوتاه پذیرفته نمی‌شود');
-
-  await say(env, '111', { text: 'تهران، خیابان آزادی، کوچه ۵، پلاک ۱۲ - کد پستی ۱۲۳۴۵' });
   const o = await pending(env, '111');
   assert.equal(o.amount, 1500000);
-  assert.match(o.note, /خیابان آزادی/);
   assert.match(lastMessage('111').body.text, /هزینه ارسال با پیک: ۳۰۰٬۰۰۰ تومان/);
-
-  // رسید: آدرس و روش تحویل در پیام ادمین
-  await handleCallbackQuery(env, cb('111', `rcpt:${o.id}`));
-  await say(env, '111', { photo: [{ file_id: 'R' }] });
-  const adminMsg = lastMessage(ADMIN).body.text;
-  assert.match(adminMsg, /ارسال با پیک/);
-  assert.match(adminMsg, /خیابان آزادی/);
-  assert.equal((await db.getOrder(env, o.id)).amount, 1500000);
+  assert.equal((await db.getSession(env, '111')).state, null);
 });
 
-test('خرید بالای ۵ میلیون: ارسال با پیک رایگان', async () => {
-  const env = freshEnv();
-  await makeUser(env, '111');
-  await setTestPrice(env, 1, 600000);
-  await db.setSetting(env, 'address:111', 'تهران، خیابان انقلاب، پلاک ۱');
-
-  await handleCallbackQuery(env, cb('111', 'os:1:c10'));
-  assert.deepEqual(buttonsOf(calls.filter((c) => c.method === 'sendMessage' && c.body.chat_id === '111').at(-2)), ['addr_ok:1:c10']);
-  await handleCallbackQuery(env, cb('111', 'addr_ok:1:c10'));
-  const o = await pending(env, '111');
-  assert.equal(o.amount, 6000000);
-  assert.match(o.note, /خیابان انقلاب/);
-  assert.match(lastMessage('111').body.text, /ارسال با پیک: <b>رایگان<\/b>/);
-});
-
-test('پرداخت با کیف پول شامل هزینه‌ی ارسال است', async () => {
+test('دکمه‌ی قدیمی آدرس ذخیره‌شده هم به پیش‌فاکتور می‌رسد', async () => {
   const env = freshEnv();
   await makeUser(env, '111', 1000000);
   await setTestPrice(env, 1, 200000);
-  await db.setSetting(env, 'address:111', 'تهران، خیابان انقلاب، پلاک ۱');
 
   await handleCallbackQuery(env, cb('111', 'addr_ok:1:c1'));
   const o = await pending(env, '111');
@@ -158,18 +116,6 @@ test('پرداخت با کیف پول شامل هزینه‌ی ارسال است
   await handleCallbackQuery(env, cb('111', `wpay:${o.id}`));
   assert.equal((await db.getOrder(env, o.id)).status, 'paid_by_wallet');
   assert.equal(await db.getWallet(env, '111'), 500000);
-  assert.match(lastMessage(ADMIN).body.text, /خیابان انقلاب/);
-});
-
-test('زدن دکمه‌ی منو وسط گرفتن آدرس، از خرید بیرون می‌آید', async () => {
-  const env = freshEnv();
-  await makeUser(env, '111');
-  await setTestPrice(env, 1, 200000);
-  await handleCallbackQuery(env, cb('111', 'os:1:c1'));
-  await say(env, '111', { text: '💼 موجودی کیف پول' });
-  assert.equal((await db.getSession(env, '111')).state, null);
-  assert.equal(await db.getSetting(env, 'address:111', ''), '');
-  assert.match(lastMessage('111').body.text, /موجودی کیف پول/);
 });
 
 let passed = 0;

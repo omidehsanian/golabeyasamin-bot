@@ -6,6 +6,8 @@ export const WALLET_BUTTON = '💼 موجودی کیف پول';
 export const INVITE_BUTTON = '👥 دعوت از دوستان';
 export const SUPPORT_BUTTON = '📞 ارتباط با ادمین';
 export const CUSTOM_BOT_BUTTON = '🤖 ساخت ربات';
+export const CART_BUTTON = '🛒 سبد خرید';
+export const ADDRESS_BUTTON = '📍 مشخصات آدرس';
 
 // متن دکمه‌های ثابت منو؛ نام محصول نباید با این‌ها یکی باشد
 export const RESERVED_BUTTONS = [
@@ -17,6 +19,8 @@ export const RESERVED_BUTTONS = [
   INVITE_BUTTON,
   SUPPORT_BUTTON,
   CUSTOM_BOT_BUTTON,
+  CART_BUTTON,
+  ADDRESS_BUTTON,
   '🔙 انصراف',
   '📱 ثبت نام',
   '🔙 شاید بعدا',
@@ -36,6 +40,7 @@ export function productRows(items, columns = 2, featuredFirst = false) {
 export function mainMenuKeyboard(products = [], opts = {}) {
   const { superAdmin = false, admin = superAdmin, columns = 2, featuredFirst = false, customBot = false } = opts;
   const keyboard = productRows(products, columns, featuredFirst).map((row) => row.map((p) => ({ text: p.buttonText })));
+  keyboard.push([{ text: CART_BUTTON }, { text: ADDRESS_BUTTON }]);
   keyboard.push([{ text: WALLET_BUTTON }, { text: INVITE_BUTTON }]);
   keyboard.push(customBot ? [{ text: SUPPORT_BUTTON }, { text: CUSTOM_BOT_BUTTON }] : [{ text: SUPPORT_BUTTON }]);
 
@@ -69,33 +74,63 @@ export function registerKeyboard() {
   };
 }
 
-export function productKeyboard(product) {
-  const inline_keyboard = [];
-  inline_keyboard.push([
-    { text: '💳 خرید / ثبت سفارش', callback_data: `buy:${product.id}` },
+// صفحه‌ی محصول: دکمه‌ی افزودن، و بعد از افزودن ➖ تعداد ➕ روی همان پیام
+export function productKeyboard(product, quantity = 0) {
+  if (quantity <= 0) {
+    return { inline_keyboard: [[{ text: '🛒 افزودن به سبد خرید', callback_data: `buy:${product.id}` }]] };
+  }
+  return {
+    inline_keyboard: [
+      [
+        { text: '➖', callback_data: `pq:dec:${product.id}` },
+        { text: `${quantity.toLocaleString('fa-IR')} عدد در سبد`, callback_data: 'cart:noop' },
+        { text: '➕', callback_data: `pq:inc:${product.id}` },
+      ],
+      [{ text: '🛒 مشاهده سبد و ثبت سفارش', callback_data: 'cart:view' }],
+    ],
+  };
+}
+
+export function cartKeyboard(items) {
+  const inline_keyboard = items.map((i) => [
+    { text: '➖', callback_data: `cart:dec:${i.productId}` },
+    { text: `${i.title} ×${i.quantity.toLocaleString('fa-IR')}`, callback_data: 'cart:noop' },
+    { text: '➕', callback_data: `cart:inc:${i.productId}` },
   ]);
+  inline_keyboard.push([{ text: '✅ ثبت سفارش', callback_data: 'cart:checkout' }]);
+  inline_keyboard.push([{ text: '🗑 خالی کردن سبد', callback_data: 'cart:clear' }]);
   return { inline_keyboard };
 }
 
-export function quantityKeyboard(productId, choices) {
-  const buttons = choices.map((n) => ({ text: `${n.toLocaleString('fa-IR')} عدد`, callback_data: `qty:${productId}:${n}` }));
-  const inline_keyboard = [];
-  for (let i = 0; i < buttons.length; i += 4) inline_keyboard.push(buttons.slice(i, i + 4));
-  return { inline_keyboard };
+export function cartDeliveryKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: '🏬 تحویل حضوری (رایگان)', callback_data: 'cart:ship:p' }],
+      [{ text: '🛵 پیک (فقط تهران)', callback_data: 'cart:ship:c' }],
+      [{ text: '📦 پست (سایر شهرها)', callback_data: 'cart:ship:s' }],
+    ],
+  };
+}
+
+export function addressActionKeyboard(label = '✏️ ویرایش آدرس') {
+  return { inline_keyboard: [[{ text: label, callback_data: 'addr:edit' }]] };
+}
+
+export function fillAddressKeyboard() {
+  return { inline_keyboard: [[{ text: '📍 ثبت آدرس', callback_data: 'addr:fill' }]] };
+}
+
+export function skipPostalKeyboard() {
+  return { inline_keyboard: [[{ text: 'کد پستی را نمی‌دانم', callback_data: 'addr:skip_postal' }]] };
 }
 
 export function deliveryKeyboard(productId, quantity) {
   return {
     inline_keyboard: [
       [{ text: '🏬 تحویل حضوری (رایگان)', callback_data: `os:${productId}:p${quantity}` }],
-      [{ text: '🛵 ارسال با پیک', callback_data: `os:${productId}:c${quantity}` }],
+      [{ text: '🛵 پیک (فقط تهران)', callback_data: `os:${productId}:c${quantity}` }],
+      [{ text: '📦 پست (سایر شهرها)', callback_data: `os:${productId}:s${quantity}` }],
     ],
-  };
-}
-
-export function savedAddressKeyboard(productId, osType) {
-  return {
-    inline_keyboard: [[{ text: '✅ ارسال به همین آدرس', callback_data: `addr_ok:${productId}:${osType}` }]],
   };
 }
 

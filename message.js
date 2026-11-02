@@ -2,6 +2,7 @@ import * as api from './api.js';
 import * as db from './db.js';
 import * as KB from './keyboards.js';
 import { findProductIdByButton, getFullProduct, orderPrice, escapeHtml } from './products.js';
+import { CART_PRODUCT_ID, getOrderProduct, replaceOrderItems } from './cart.js';
 import { isSuperAdmin, isAdmin, money, signupBonus, shopName, customBotEnabled, supportPhoneLink } from './config.js';
 import {
   menuKeyboardFor,
@@ -12,10 +13,13 @@ import {
   broadcastStatusText,
   stopBroadcast,
   showPayment,
-  continueCheckout,
+  showCart,
+  showAddressProfile,
+  handleAddressInput,
+  prepareOrderDelivery,
+  followUpOrderAddress,
   deliveryLines,
-  saveAddress,
-  MAX_ADDRESS_LENGTH,
+  ADDRESS_SESSION_STATES,
 } from './flows.js';
 import { sendOrderDetails, showOrdersPanel } from './admin_orders.js';
 import {
@@ -258,22 +262,13 @@ export async function handleMessage(env, message) {
     }
   }
 
-  // آدرس ارسال با پیک؛ زدن یکی از دکمه‌های منو یعنی کاربر از خرید بیرون رفته
-  if (session.state === 'awaiting_address') {
+  // مشخصات آدرس؛ زدن یکی از دکمه‌های منو یعنی کاربر از فرم بیرون رفته (یادآوری سفارش سر جایش می‌ماند)
+  if (ADDRESS_SESSION_STATES.includes(session.state)) {
     if (KB.RESERVED_BUTTONS.includes(text) || (await findProductIdByButton(env, text))) {
       await db.clearSession(env, chatId);
       session.state = null;
     } else {
-      const address = text.replace(/\s+/g, ' ').trim();
-      if (address.length < 10 || address.length > MAX_ADDRESS_LENGTH || address.startsWith('/')) {
-        await api.sendMessage(env, chatId, `⚠️ لطفاً آدرس کامل را به‌صورت متن بنویسید (بین ۱۰ تا ${MAX_ADDRESS_LENGTH} کاراکتر):`, KB.cancelKeyboard());
-        return;
-      }
-      const { productId, osType } = session.data || {};
-      await saveAddress(env, chatId, address);
-      await db.clearSession(env, chatId);
-      await api.sendMessage(env, chatId, '✅ آدرس ثبت شد.', await menuKeyboardFor(env, chatId));
-      await continueCheckout(env, chatId, productId, osType);
+      await handleAddressInput(env, chatId, session.state, text);
       return;
     }
   }
@@ -345,6 +340,18 @@ export async function handleMessage(env, message) {
         return;
       }
     }
+  }
+
+  if (text === KB.CART_BUTTON) {
+    if (!(await canProceed(env, chatId))) return;
+    await showCart(env, chatId);
+    return;
+  }
+
+  if (text === KB.ADDRESS_BUTTON) {
+    if (!(await canProceed(env, chatId))) return;
+    await showAddressProfile(env, chatId);
+    return;
   }
 
   if (text === '💼 موجودی کیف پول') {
@@ -472,7 +479,7 @@ export async function handleMessage(env, message) {
       return;
     }
 
-    const product = await getFullProduct(env, productId);
+    const product = boundOrder ? await getOrderProduct(env, boundOrder) : await getFullProduct(env, productId);
     const title = escapeHtml(product?.title || boundOrder?.product_title || info.title || productId);
     const discountedPrice = orderPrice(env, product, osType, discountPercent).price;
     // موجودی منفی هرگز نباید به «اعتبار منفی» و افزایش مبلغ فاکتور تبدیل شود
@@ -495,13 +502,14 @@ export async function handleMessage(env, message) {
         status: 'receipt_sent',
         note: boundOrder ? `رسید پس از لغو سفارش #1000${boundOrder.id}` : '',
       });
+      if (productId === CART_PRODUCT_ID && product?.items) await replaceOrderItems(env, rawOrderId, product.items);
     }
     const orderId = `1000${rawOrderId}`;
 
     await api.forwardMessage(env, env.SUPPORT_CHAT_ID || env.ADMIN_CHAT_ID, chatId, message.message_id);
 
     const phone = await db.getPhone(env, chatId);
-    const savedOrder = await db.getOrder(env, rawOrderId);
+    const savedOrder = await prepareOrderDelivery(env, chatId, await db.getOrder(env, rawOrderId));
     await notifyAdmin(
       env,
       `🧾 <b>رسید پرداخت جدید - سفارش #${orderId}</b>\n\n` +
@@ -517,6 +525,7 @@ export async function handleMessage(env, message) {
 
     await db.clearSession(env, chatId);
     await api.sendMessage(env, chatId, '✅ رسید شما ارسال شد. پس از بررسی تایید می‌گردد.', await menuKeyboardFor(env, chatId));
+    await followUpOrderAddress(env, chatId, savedOrder);
     return;
   }
 

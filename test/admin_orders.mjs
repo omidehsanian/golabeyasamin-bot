@@ -89,7 +89,7 @@ test('دکمه «📦 سفارشات» فقط در منوی سوپرادمین �
   for (const trigger of ['📦 سفارشات', '/orders']) {
     calls.length = 0;
     await handleMessage(env, { chat: { id: Number(ADMIN) }, from: { id: Number(ADMIN) }, text: trigger, message_id: msgId++ });
-    assert.deepEqual(buttonsTo(ADMIN), ['adm_ord:all', 'adm_ord:confirmed', 'adm_ord:rejected', 'adm_ord:review', 'adm_ord:invoices', 'adm_xls:orders', 'adm_xls:users']);
+    assert.deepEqual(buttonsTo(ADMIN), ['adm_ord:all', 'adm_ord:confirmed', 'adm_ord:rejected', 'adm_ord:review', 'adm_ord:awaiting_address', 'adm_ord:invoices', 'adm_xls:orders', 'adm_xls:users']);
   }
 
   calls.length = 0;

@@ -17,7 +17,11 @@ CREATE TABLE IF NOT EXISTS users (
     channel_confirmed     INTEGER DEFAULT 0,
     created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
     discount_locked_until INTEGER DEFAULT 0,
-    username              TEXT          -- نام کاربری تلگرام (برای گزارش سفارش‌ها)
+    username              TEXT,         -- نام کاربری تلگرام (برای گزارش سفارش‌ها)
+    -- پروفایل آدرس برای ارسال با پیک/پست
+    address               TEXT,
+    postal_code           TEXT,
+    postal_skipped        INTEGER DEFAULT 0 -- کاربر گفته کد پستی را نمی‌داند
 );
 
 CREATE TABLE IF NOT EXISTS referrals (
@@ -50,7 +54,14 @@ CREATE TABLE IF NOT EXISTS orders (
     cancel_reason          TEXT,        -- timeout | superseded
     cancel_notice_sent_at  DATETIME,
     cancel_notice_attempts INTEGER DEFAULT 0,
-    notify_error           TEXT
+    notify_error           TEXT,
+    -- آدرس سفارش پیک/پست (بعد از پرداخت از پروفایل کپی می‌شود)
+    ship_address             TEXT,
+    ship_postal              TEXT,
+    address_requested_at     DATETIME,
+    address_done_at          DATETIME,  -- خالی با address_requested_at پر یعنی «منتظر آدرس»
+    address_reminders        INTEGER DEFAULT 0,
+    address_admin_alerted_at DATETIME
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_idempotency_key
@@ -61,6 +72,29 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_one_pending_per_user
     ON orders (user_id) WHERE status = 'pending';
 
 CREATE INDEX IF NOT EXISTS idx_orders_status_created ON orders (status, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_orders_awaiting_address
+    ON orders (address_requested_at) WHERE address_requested_at IS NOT NULL AND address_done_at IS NULL;
+
+-- سبد خرید هر کاربر
+CREATE TABLE IF NOT EXISTS cart_items (
+    chat_id    TEXT NOT NULL,
+    product_id INTEGER NOT NULL,
+    quantity   INTEGER NOT NULL,
+    PRIMARY KEY (chat_id, product_id)
+);
+
+-- اقلام سفارش‌های سبد (product_id = 'cart')؛ کپی نام و قیمت در لحظه‌ی صدور پیش‌فاکتور
+CREATE TABLE IF NOT EXISTS order_items (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id   INTEGER NOT NULL,
+    product_id INTEGER NOT NULL,
+    title      TEXT NOT NULL,
+    unit_price INTEGER NOT NULL,
+    quantity   INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items (order_id);
 
 -- محصولات فروشگاه (ادمین از داخل ربات می‌سازد: ➕ ساخت محصول)
 -- position: جایگاه دکمه در منوی اصلی، پشت‌سرهم از ۱

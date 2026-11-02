@@ -1,21 +1,27 @@
 import * as api from './api.js';
 import * as db from './db.js';
 import * as KB from './keyboards.js';
-import { escapeHtml, getFullProduct, orderPrice, parseVariant, variantCode } from './products.js';
+import { escapeHtml, getFullProduct, needsAddress, orderPrice, parseVariant, variantCode } from './products.js';
+import { CART_PRODUCT_ID, cartQuantity, changeCartQuantity, clearCart, getOrderProduct } from './cart.js';
 import { cashbackPercent, money, referralCommissionPercent, referralReward, isAdmin, isSuperAdmin } from './config.js';
 import {
+  askCartDelivery,
   askDelivery,
-  askQuantity,
+  askProfileAddress,
   broadcastStatusText,
   canProceed,
-  chooseDelivery,
   continueCheckout,
   deliveryLines,
-  getSavedAddress,
+  followUpOrderAddress,
   menuKeyboardFor,
   notifyAdmin,
+  prepareOrderDelivery,
+  refreshCartMessage,
   resumeCheckout,
+  showCart,
   showPayment,
+  skipPostal,
+  startAddressFill,
 } from './flows.js';
 import { sendLastOrders, sendOrdersExcel, sendOrdersReport, showCategoryMenu, showOrdersPanel } from './admin_orders.js';
 import { sendUsersExcel } from './admin_users.js';
@@ -30,7 +36,7 @@ export async function handleCallback(env, callbackQuery) {
 
   // دکمه‌های مدیریتی فقط برای سوپرادمین
   // نام کاربری تلگرام در مراحل خرید (برای جزئیات سفارش در پنل ادمین)
-  if (/^(buy|qty|os|addr_ok|rcpt|wpay|walletpay|receipt):/.test(data)) {
+  if (/^(buy|qty|os|addr_ok|rcpt|wpay|walletpay|receipt|cart):/.test(data)) {
     await db.rememberUsername(env, actorId, callbackQuery.from?.username);
   }
 
@@ -117,8 +123,75 @@ export async function handleCallback(env, callbackQuery) {
     return;
   }
 
-  // مراحل خرید: buy (تعداد) ← qty (روش تحویل) ← os (آدرس / کد تخفیف) ← addr_ok (آدرس ذخیره‌شده)
-  if (/^(buy|qty|os|addr_ok):/.test(data)) {
+  // افزودن به سبد از صفحه‌ی محصول: دکمه‌های همان پیام به ➖ تعداد ➕ تبدیل می‌شوند
+  if (data.startsWith('buy:') || data.startsWith('pq:')) {
+    const parts = data.split(':');
+    const productId = parts[parts.length - 1];
+    const before = await cartQuantity(env, chatId, productId);
+    const quantity = await changeCartQuantity(env, chatId, productId, parts[1] === 'dec' ? -1 : 1);
+    if (quantity === null) {
+      await api.answerCallbackQuery(env, callbackId, { text: '❌ این محصول دیگر موجود نیست.', show_alert: true });
+      return;
+    }
+    const atMax = quantity === before && parts[1] !== 'dec';
+    await api.answerCallbackQuery(env, callbackId, { text: atMax ? `حداکثر ${quantity.toLocaleString('fa-IR')} عدد از هر محصول` : '🛒 سبد خرید به‌روز شد' });
+    if (messageId && !atMax) {
+      await api.editMessageReplyMarkup(env, chatId, messageId, KB.productKeyboard({ id: productId }, quantity));
+    }
+    return;
+  }
+
+  // سبد خرید: cart:view | inc | dec | clear | checkout | ship
+  if (data.startsWith('cart:')) {
+    const [, action, arg] = data.split(':');
+    if (action === 'noop') {
+      await api.answerCallbackQuery(env, callbackId);
+      return;
+    }
+    if (action === 'inc' || action === 'dec') {
+      await changeCartQuantity(env, chatId, arg, action === 'inc' ? 1 : -1);
+      await api.answerCallbackQuery(env, callbackId);
+      await refreshCartMessage(env, chatId, messageId);
+      return;
+    }
+    if (action === 'clear') {
+      await clearCart(env, chatId);
+      await api.answerCallbackQuery(env, callbackId, { text: '🗑 سبد خالی شد.' });
+      await refreshCartMessage(env, chatId, messageId);
+      return;
+    }
+    await api.answerCallbackQuery(env, callbackId);
+    if (action === 'view') {
+      await showCart(env, chatId);
+      return;
+    }
+    if (!(await db.isRegistered(env, chatId))) {
+      await api.sendMessage(env, chatId, '⚠️ برای ثبت سفارش ابتدا باید ثبت‌نام کنید. سبد شما ذخیره می‌ماند:', KB.registerKeyboard());
+      return;
+    }
+    if (action === 'checkout') {
+      await askCartDelivery(env, chatId);
+    } else if (action === 'ship' && ['p', 'c', 's'].includes(arg)) {
+      await continueCheckout(env, chatId, CART_PRODUCT_ID, arg);
+    }
+    return;
+  }
+
+  // مشخصات آدرس
+  if (data.startsWith('addr:')) {
+    await api.answerCallbackQuery(env, callbackId);
+    if (data === 'addr:edit') await askProfileAddress(env, chatId);
+    else if (data === 'addr:fill') await startAddressFill(env, chatId);
+    else if (data === 'addr:skip_postal') {
+      const profile = await db.getAddressProfile(env, chatId);
+      if (profile.address) await skipPostal(env, chatId);
+      else await askProfileAddress(env, chatId);
+    }
+    return;
+  }
+
+  // دکمه‌های پیام‌های قدیمی: qty (تعداد) ← os (روش تحویل) ← addr_ok (آدرس ذخیره‌شده)
+  if (/^(qty|os|addr_ok):/.test(data)) {
     const [action, productId, arg] = data.split(':');
     await api.answerCallbackQuery(env, callbackId);
 
@@ -128,20 +201,11 @@ export async function handleCallback(env, callbackQuery) {
       return;
     }
 
-    if (action === 'buy') {
-      await askQuantity(env, chatId, productId);
-    } else if (action === 'qty') {
+    if (action === 'qty') {
       await askDelivery(env, chatId, productId, parseVariant(variantCode('pickup', arg)).quantity);
-    } else if (action === 'os') {
-      await chooseDelivery(env, chatId, productId, parseVariant(arg).delivery ? arg : variantCode('pickup', 1));
     } else {
-      if (!(await getSavedAddress(env, chatId))) {
-        await chooseDelivery(env, chatId, productId, arg);
-        return;
-      }
       await db.clearSession(env, chatId);
-      await api.sendMessage(env, chatId, '✅ سفارش به همین آدرس ارسال می‌شود.', await menuKeyboardFor(env, chatId));
-      await continueCheckout(env, chatId, productId, arg);
+      await continueCheckout(env, chatId, productId, parseVariant(arg).delivery ? arg : variantCode('pickup', 1));
     }
     return;
   }
@@ -275,11 +339,13 @@ export async function handleCallback(env, callbackQuery) {
       await api.answerCallbackQuery(env, callbackId, { text: '🎉 پرداخت انجام شد!' });
       if (result.reason === 'paid') {
         await db.clearSession(env, chatId);
-        await api.sendMessage(env, chatId, `✅ مبلغ ${money(result.order.amount)} تومان از کیف پول شما کسر شد.\nسفارش <b>${orderId}</b> ثبت شد.`);
+        const paidOrder = await prepareOrderDelivery(env, chatId, result.order);
+        await api.sendMessage(env, chatId, `✅ مبلغ ${money(paidOrder.amount)} تومان از کیف پول شما کسر شد.\nسفارش <b>${orderId}</b> ثبت شد.`);
         await notifyAdmin(
           env,
-          `💼 <b>خرید با کیف پول (سفارش #${orderId})</b>\nمحصول: ${escapeHtml(product.title)}\nمبلغ: ${money(result.order.amount)} تومان`
+          `💼 <b>خرید با کیف پول (سفارش #${orderId})</b>\nمحصول: ${escapeHtml(product.title)}\n${deliveryLines(paidOrder)}مبلغ: ${money(paidOrder.amount)} تومان`
         );
+        await followUpOrderAddress(env, chatId, paidOrder);
       }
     } else if (result.reason === 'invalid_price') {
       await api.answerCallbackQuery(env, callbackId, { text: '⚠️ این محصول هنوز قیمت‌گذاری نشده است.', show_alert: true });
@@ -351,11 +417,17 @@ export async function handleCallback(env, callbackQuery) {
       const product = await getFullProduct(env, order.product_id);
       const productDisplayName = escapeHtml(product ? product.title : (order.product_title || 'محصول'));
       
+      const nextStep = parseVariant(order.os_type).delivery === 'pickup'
+        ? 'و برای تحویل حضوری آماده می‌شود'
+        : 'و به زودی برای شما ارسال می‌شود';
       await api.sendMessage(
         env,
         order.user_id,
-        `✅ <b>سفارش شما با شماره <b>${orderId}</b> تایید شد و به زودی برای شما ارسال میشود.</b>\n\nمحصول: ${productDisplayName}`
+        `✅ <b>سفارش شما با شماره <b>${orderId}</b> تایید شد ${nextStep}.</b>\n\nمحصول: ${productDisplayName}`
       );
+      if (needsAddress(order.os_type) && order.address_requested_at && !order.address_done_at) {
+        await api.sendMessage(env, order.user_id, '📍 برای ارسال این سفارش هنوز آدرس و کد پستی شما را نداریم:', KB.fillAddressKeyboard());
+      }
     }
     if (result.cashback.appliedNow) {
       const balance = await db.getWallet(env, order.user_id);
@@ -421,7 +493,7 @@ async function startReceiptStep(env, chatId, callbackId, order) {
 
 // پرداخت سفارش pending با کیف پول؛ قیمت و موجودی همین لحظه دوباره بررسی می‌شوند
 async function payOrderFromWallet(env, chatId, callbackId, order) {
-  const product = await getFullProduct(env, order.product_id);
+  const product = await getOrderProduct(env, order);
   if (!product) {
     await api.answerCallbackQuery(env, callbackId, { text: '⚠️ این محصول در حال حاضر قابل خرید نیست.', show_alert: true });
     return;
@@ -435,11 +507,13 @@ async function payOrderFromWallet(env, chatId, callbackId, order) {
   if (result.reason === 'paid') {
     await api.answerCallbackQuery(env, callbackId, { text: '🎉 پرداخت انجام شد!' });
     await db.clearSession(env, chatId);
-    await api.sendMessage(env, chatId, `✅ مبلغ ${money(result.order.amount)} تومان از کیف پول شما کسر شد.\nسفارش <b>${orderNo}</b> ثبت شد.`);
+    const paidOrder = await prepareOrderDelivery(env, chatId, result.order);
+    await api.sendMessage(env, chatId, `✅ مبلغ ${money(paidOrder.amount)} تومان از کیف پول شما کسر شد.\nسفارش <b>${orderNo}</b> ثبت شد.`);
     await notifyAdmin(
       env,
-      `💼 <b>خرید با کیف پول (سفارش #${orderNo})</b>\nمحصول: ${escapeHtml(product.title)}\n${deliveryLines(result.order)}مبلغ: ${money(result.order.amount)} تومان`
+      `💼 <b>خرید با کیف پول (سفارش #${orderNo})</b>\nمحصول: ${escapeHtml(product.title)}\n${deliveryLines(paidOrder)}مبلغ: ${money(paidOrder.amount)} تومان`
     );
+    await followUpOrderAddress(env, chatId, paidOrder);
   } else if (result.reason === 'duplicate') {
     await api.answerCallbackQuery(env, callbackId, { text: '✅ این سفارش قبلاً پرداخت شده است.' });
   } else if (result.reason === 'invalid_price') {

@@ -5,6 +5,7 @@
 
 import * as api from './api.js';
 import { money } from './config.js';
+import { AWAITING_ADDRESS_SQL } from './db.js';
 import { adminOrderKeyboard } from './keyboards.js';
 import { variantLabel } from './products.js';
 import { buildXlsx, XLSX_MIME } from './xlsx.js';
@@ -14,6 +15,7 @@ export const ORDER_CATEGORIES = {
   confirmed: { label: '✅ تایید نهایی', where: "o.status IN ('confirmed', 'paid_by_wallet')" },
   rejected: { label: '❌ لغوشده توسط ادمین', where: "o.status = 'rejected'" },
   review: { label: '⏳ در انتظار بررسی', where: "o.status IN ('receipt_sent', 'new', 'awaiting_confirmation')" },
+  awaiting_address: { label: '📍 منتظر آدرس', where: AWAITING_ADDRESS_SQL },
   invoices: {
     label: '🧾 فاکتورهای باز / لغو خودکار',
     where: "o.status IN ('pending', 'cancelled', 'awaiting_wallet', 'wallet_insufficient')",
@@ -115,6 +117,16 @@ async function queryOrders(env, key, limit) {
   return results || [];
 }
 
+function addressLines(o) {
+  if (!o.address_requested_at) return [];
+  const lines = [];
+  if (o.ship_address) lines.push(`📍 ${escapeHtml(o.ship_address)}`);
+  if (o.ship_postal) lines.push(`📮 کد پستی: <code>${escapeHtml(o.ship_postal)}</code>`);
+  if (!o.address_done_at) lines.push(o.ship_address ? '⚠️ منتظر کد پستی' : '⚠️ منتظر آدرس');
+  else if (!o.ship_postal) lines.push('📮 کد پستی: مشتری نمی‌داند');
+  return lines;
+}
+
 function orderBlock(o) {
   const name = o.full_name || o.first_name || 'بدون نام';
   const lines = [
@@ -124,6 +136,7 @@ function orderBlock(o) {
     `🆔 <code>${escapeHtml(o.user_id)}</code> — <a href="tg://user?id=${encodeURIComponent(o.user_id)}">پروفایل</a>`,
     `🛍 ${escapeHtml(o.product_title || o.product_id)}${osLabel(o.os_type)}`,
   ];
+  lines.push(...addressLines(o));
   if (o.product_id !== 'custom_bot') {
     lines.push(`💰 مبلغ: ${money(o.amount)} | 💼 کیف پول: ${money(walletPart(o))} | 💳 نقدی: ${money(cashPart(o))} تومان`);
     if (Number(o.discount_percent) > 0) lines.push(`🎟 تخفیف: ${Number(o.discount_percent)}%`);
@@ -219,8 +232,13 @@ export async function sendOrdersReport(env, chatId, key) {
     `SELECT o.status, COUNT(*) AS n, COALESCE(SUM(o.amount), 0) AS amount FROM orders o WHERE ${where} GROUP BY o.status ORDER BY n DESC`
   ).all();
   const { results: byProduct } = await env.DB.prepare(
-    `SELECT COALESCE(MAX(o.product_title), o.product_id) AS product, COUNT(*) AS n, COALESCE(SUM(o.amount), 0) AS amount
-     FROM orders o WHERE ${where} GROUP BY o.product_id ORDER BY n DESC`
+    `SELECT product, SUM(n) AS n, SUM(amount) AS amount FROM (
+       SELECT COALESCE(MAX(o.product_title), o.product_id) AS product, COUNT(*) AS n, COALESCE(SUM(o.amount), 0) AS amount
+       FROM orders o WHERE (${where}) AND COALESCE(o.product_id, '') <> 'cart' GROUP BY o.product_id
+       UNION ALL
+       SELECT i.title AS product, COUNT(*) AS n, COALESCE(SUM(i.unit_price * i.quantity), 0) AS amount
+       FROM order_items i JOIN orders o ON o.id = i.order_id WHERE (${where}) AND o.product_id = 'cart' GROUP BY i.title
+     ) GROUP BY product ORDER BY n DESC`
   ).all();
 
   const cash = Math.max(0, totals.amount - totals.wallet);
@@ -252,12 +270,14 @@ const ORDER_COLUMNS = [
   { header: 'نام کاربری', width: 16 },
   { header: 'شماره تماس', width: 15 },
   { header: 'آیدی عددی', width: 14 },
-  { header: 'محصول', width: 20 },
+  { header: 'محصول', width: 34 },
   { header: 'تعداد / تحویل', width: 22 },
   { header: 'مبلغ (تومان)', type: 'number', width: 14 },
   { header: 'از کیف پول', type: 'number', width: 13 },
   { header: 'نقدی', type: 'number', width: 13 },
   { header: 'تخفیف ٪', type: 'number', width: 9 },
+  { header: 'آدرس', width: 45 },
+  { header: 'کد پستی', width: 13 },
   { header: 'تاریخ تایید', width: 18 },
   { header: 'تاریخ لغو', width: 18 },
   { header: 'دلیل لغو', width: 22 },
@@ -287,6 +307,8 @@ export async function sendOrdersExcel(env, chatId, key, total = null) {
     o.product_id === 'custom_bot' ? '' : walletPart(o),
     o.product_id === 'custom_bot' ? '' : cashPart(o),
     Number(o.discount_percent) || '',
+    o.ship_address || (o.address_requested_at ? 'منتظر آدرس' : ''),
+    o.ship_postal || '',
     o.confirmed_at ? faTime(o.confirmed_at) : '',
     o.cancelled_at ? faTime(o.cancelled_at) : '',
     o.cancel_reason ? CANCEL_REASONS[o.cancel_reason] || o.cancel_reason : '',

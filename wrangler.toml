@@ -24,7 +24,7 @@ crons = ["* * * * *"]
 # (BOT_TOKEN اینجا نیست؛ با «wrangler secret put BOT_TOKEN» تنظیم می‌شود)
 # ==========================================
 [vars]
-SHOP_NAME = "فروشگاه"            # نام فروشگاه در پیام خوش‌آمد
+SHOP_NAME = "مزرعه چیمه رود"          # نام فروشگاه در پیام خوش‌آمد
 ADMIN_CHAT_ID = "189219108"    # سوپرادمین: همه‌ی امکانات (آیدی عددی؛ در ربات /id بزنید)
 SUPPORT_CHAT_ID = "" # ادمین پشتیبانی: محصولات و تایید سفارش (اگر ندارید همان ADMIN_CHAT_ID)
 SUPPORT_PHONE = "09194013595"         # دکمه‌ی «ارتباط با ادمین» مستقیم چت تلگرام این شماره را باز می‌کند
@@ -33,8 +33,8 @@ BOT_USERNAME = "mazchimbot"      # بدون @ (برای لینک دعوت)
 CHANNEL_USERNAME = ""
 CHANNEL_ENABLED = "false"               # "false" = بدون عضویت اجباری کانال
 REGISTRATION_ENABLED = "true"
-CARD_NUMBER = ""
-CARD_HOLDER = ""
+CARD_NUMBER = "0000000000000000"       # موقت: شماره کارت واقعی را اینجا بگذارید و دوباره deploy کنید
+CARD_HOLDER = "مرتضی احسانیان چیمه"
 PRODUCT_COLUMNS = "3"                  # تعداد دکمه‌ی محصول در هر ردیف منو (۱ تا ۴)
 PRODUCT_FEATURED_FIRST = "true"        # "true" = اولین محصول (جایگاه ۱) در یک ردیف تکی
 CUSTOM_BOT_ENABLED = "false"           # "true" = دکمه‌ی «🤖 ساخت ربات» (فرم سفارش ساخت ربات)
@@ -46,6 +46,10 @@ REFERRAL_COMMISSION_PERCENT = "0"      # کمیسیون معرف از هر خر�
 # کش‌بک: درصدی از مبلغ نهایی پرداختی که بعد از تایید ادمین به کیف پول خریدار برمی‌گردد
 CASHBACK_ENABLED = "true"
 CASHBACK_PERCENT = "5"
+
+COURIER_FEE = "300000"                 # هزینه‌ی پیک (فقط تهران)
+POST_FEE = "300000"                    # هزینه‌ی پست (سایر شهرها)
+FREE_SHIPPING_MIN = "5000000"          # از این مبلغ به بالا پیک و پست رایگان
 
 DISCOUNT_ENABLED = "true"              # یا "false" برای غیرفعال کردن کل سیستم تخفیف
 DISCOUNT_CODES = ""                    # مثال: "OFF10:10,VIP20:20"

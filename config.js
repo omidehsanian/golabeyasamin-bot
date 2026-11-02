@@ -77,6 +77,12 @@ export function courierFee(env) {
   return Number.isFinite(n) && n >= 0 ? n : 300000;
 }
 
+// هزینه‌ی ارسال با پست به شهرهای دیگر؛ آستانه‌ی ارسال رایگان همان FREE_SHIPPING_MIN است
+export function postFee(env) {
+  const n = Number(env?.POST_FEE ?? 300000);
+  return Number.isFinite(n) && n >= 0 ? n : 300000;
+}
+
 export function freeShippingMin(env) {
   const n = Number(env?.FREE_SHIPPING_MIN ?? 5000000);
   return Number.isFinite(n) && n >= 0 ? n : 5000000;

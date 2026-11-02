@@ -5,12 +5,13 @@ import {
   buildProductCaption,
   getFullProduct,
   listProducts,
+  needsAddress,
   orderPrice,
   parseVariant,
-  QUANTITY_CHOICES,
   shippingInfoText,
   variantLabel,
 } from './products.js';
+import { CART_PRODUCT_ID, cartAsProduct, cartQuantity, getCart, getOrderProduct, itemsTotal, removeOrderItemsFromCart, replaceOrderItems } from './cart.js';
 import { cashbackPercent, channelEnabled, customBotEnabled, freeShippingMin, money, isAdmin, isSuperAdmin, productColumns, productFeaturedFirst } from './config.js';
 
 const BROADCAST_SOURCE_KEY = 'broadcast_source';
@@ -81,7 +82,7 @@ export async function showProduct(env, chatId, productId) {
 
   let text = buildProductCaption(product);
   if (product.price > 0) text += `\n\n${shippingInfoText(env)}`;
-  const keyboard = product.price > 0 ? KB.productKeyboard(product) : null;
+  const keyboard = product.price > 0 ? KB.productKeyboard(product, await cartQuantity(env, chatId, productId)) : null;
   if (product.photoFileId) {
     await api.sendPhoto(env, chatId, product.photoFileId, text, keyboard);
   } else {
@@ -93,46 +94,175 @@ export async function showProduct(env, chatId, productId) {
 // نمایش صفحه پرداخت (اصلاح قیمت و رفع مشکل پرانتزها در تلگرام)
 // ----------------------------------------------------
 // ----------------------------------------------------
-// مراحل خرید: تعداد ← روش تحویل ← (آدرس برای پیک) ← کد تخفیف ← پیش‌فاکتور
+// مراحل خرید: سبد ← روش تحویل ← کد تخفیف ← پیش‌فاکتور ← پرداخت ← (آدرس برای پیک و پست، اگر پروفایل کامل نباشد)
 // ----------------------------------------------------
-const addressKey = (chatId) => `address:${chatId}`;
 export const MAX_ADDRESS_LENGTH = 400;
+export const ADDRESS_SESSION_STATES = ['profile_address', 'profile_postal'];
 
-export async function getSavedAddress(env, chatId) {
-  return String((await db.getSetting(env, addressKey(chatId), '')) || '').trim();
+function cartText(items) {
+  let text = '🛒 <b>سبد خرید شما:</b>\n\n';
+  for (const i of items) {
+    text += `▫️ ${escapeHtml(i.title)} × ${i.quantity.toLocaleString('fa-IR')} — ${money(i.unitPrice * i.quantity)} تومان\n`;
+  }
+  return `${text}\n💰 جمع کالاها: <b>${money(itemsTotal(items))} تومان</b>`;
 }
 
-export async function saveAddress(env, chatId, address) {
-  await db.setSetting(env, addressKey(chatId), address);
+const EMPTY_CART_TEXT = '🛒 سبد خرید شما خالی است.\n\nاز منو یک محصول انتخاب کنید و «افزودن به سبد خرید» را بزنید.';
+
+export async function showCart(env, chatId) {
+  const items = await getCart(env, chatId);
+  await api.sendMessage(env, chatId, items.length ? cartText(items) : EMPTY_CART_TEXT, items.length ? KB.cartKeyboard(items) : null);
 }
 
-export async function askQuantity(env, chatId, productId) {
-  const product = await getFullProduct(env, productId);
-  if (!product) {
-    await api.sendMessage(env, chatId, '❌ این محصول دیگر موجود نیست.', await menuKeyboardFor(env, chatId));
+// تغییر تعداد از داخل صفحه‌ی سبد، روی همان پیام
+export async function refreshCartMessage(env, chatId, messageId) {
+  const items = await getCart(env, chatId);
+  await api.callTelegram(env, 'editMessageText', {
+    chat_id: chatId,
+    message_id: messageId,
+    text: items.length ? cartText(items) : EMPTY_CART_TEXT,
+    parse_mode: 'HTML',
+    reply_markup: items.length ? KB.cartKeyboard(items) : { inline_keyboard: [] },
+  });
+}
+
+export async function askCartDelivery(env, chatId) {
+  const items = await getCart(env, chatId);
+  if (!items.length) {
+    await api.sendMessage(env, chatId, EMPTY_CART_TEXT);
     return;
   }
-  await api.sendMessage(env, chatId, `🔢 چند عدد «${escapeHtml(product.title)}» می‌خواهید؟`, KB.quantityKeyboard(productId, QUANTITY_CHOICES));
+  await api.sendMessage(
+    env,
+    chatId,
+    `🚚 روش تحویل را انتخاب کنید:\n\n${shippingInfoText(env)}\n\n📍 اگر ارسال می‌خواهید، آدرس را بعد از پرداخت می‌گیریم.`,
+    KB.cartDeliveryKeyboard()
+  );
 }
 
 export async function askDelivery(env, chatId, productId, quantity) {
   await api.sendMessage(env, chatId, `🚚 روش تحویل را انتخاب کنید:\n\n${shippingInfoText(env)}`, KB.deliveryKeyboard(productId, quantity));
 }
 
-// بعد از انتخاب روش تحویل: برای پیک آدرس گرفته می‌شود، بعد کد تخفیف / پیش‌فاکتور
-export async function chooseDelivery(env, chatId, productId, osType) {
-  if (parseVariant(osType).delivery === 'courier') {
-    const saved = await getSavedAddress(env, chatId);
-    await db.setSession(env, chatId, 'awaiting_address', { productId, osType });
-    if (saved) {
-      await api.sendMessage(env, chatId, `📍 آدرس قبلی شما:\n${escapeHtml(saved)}`, KB.savedAddressKeyboard(productId, osType));
-      await api.sendMessage(env, chatId, 'یا آدرس جدید را بنویسید 👇', KB.cancelKeyboard());
-    } else {
-      await api.sendMessage(env, chatId, '📍 آدرس کامل و کد پستی برای ارسال با پیک را بنویسید:', KB.cancelKeyboard());
-    }
+// ----------------------------------------------------
+// پروفایل آدرس: آدرس ← کد پستی (۱۰ رقم)
+// ----------------------------------------------------
+export function normalizePostal(text) {
+  return String(text || '')
+    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/[\s-]/g, '');
+}
+
+function profileText(profile) {
+  const postal = profile.postal ? `<code>${escapeHtml(profile.postal)}</code>` : profile.postalSkipped ? 'نامشخص' : 'ثبت نشده';
+  return `📍 آدرس: ${escapeHtml(profile.address || 'ثبت نشده')}\n📮 کد پستی: ${postal}`;
+}
+
+export async function showAddressProfile(env, chatId) {
+  const profile = await db.getAddressProfile(env, chatId);
+  if (!profile.address) {
+    await api.sendMessage(env, chatId, '📍 هنوز آدرسی ثبت نکرده‌اید. با ثبت آدرس، در خریدهای بعدی دیگر چیزی از شما پرسیده نمی‌شود.', KB.addressActionKeyboard('➕ ثبت آدرس'));
     return;
   }
-  await continueCheckout(env, chatId, productId, osType);
+  await api.sendMessage(
+    env,
+    chatId,
+    `<b>مشخصات آدرس شما</b>\n\n${profileText(profile)}\n\nتغییر آدرس روی سفارش‌های تاییدشده اثر ندارد؛ برای آن‌ها به پشتیبانی پیام بدهید.`,
+    KB.addressActionKeyboard()
+  );
+}
+
+export async function askProfileAddress(env, chatId, intro = '') {
+  await db.setSession(env, chatId, 'profile_address', {});
+  await api.sendMessage(
+    env,
+    chatId,
+    `${intro}✍️ آدرس کامل را با ذکر شهر بنویسید (شهر، خیابان، کوچه، پلاک، واحد):`,
+    KB.cancelKeyboard()
+  );
+}
+
+async function askProfilePostal(env, chatId) {
+  await db.setSession(env, chatId, 'profile_postal', {});
+  await api.sendMessage(env, chatId, '📮 کد پستی ۱۰ رقمی را بنویسید:', KB.skipPostalKeyboard());
+}
+
+// از هر جا که کار نیمه‌تمام مانده ادامه می‌دهد: آدرس دارد ولی کد پستی نه ← فقط کد پستی
+export async function startAddressFill(env, chatId, intro = '') {
+  const profile = await db.getAddressProfile(env, chatId);
+  if (profile.complete) {
+    await showAddressProfile(env, chatId);
+    return;
+  }
+  if (!profile.address) {
+    await askProfileAddress(env, chatId, intro);
+    return;
+  }
+  await api.sendMessage(env, chatId, `${intro}📍 آدرس ثبت‌شده: ${escapeHtml(profile.address)}`, KB.addressActionKeyboard('✏️ تغییر آدرس'));
+  await api.sendMessage(env, chatId, 'برای انصراف دکمه زیر را بزنید.', KB.cancelKeyboard());
+  await askProfilePostal(env, chatId);
+}
+
+export async function handleAddressInput(env, chatId, state, text) {
+  if (state === 'profile_address') {
+    const address = text.replace(/\s+/g, ' ').trim();
+    if (address.length < 10 || address.length > MAX_ADDRESS_LENGTH || address.startsWith('/')) {
+      await api.sendMessage(env, chatId, `⚠️ لطفاً آدرس کامل را به‌صورت متن بنویسید (بین ۱۰ تا ${MAX_ADDRESS_LENGTH} کاراکتر):`, KB.cancelKeyboard());
+      return;
+    }
+    await db.saveProfileAddress(env, chatId, address);
+    // آدرس جدید ممکن است کد پستی قبلی را بی‌اعتبار کند
+    await db.saveProfilePostal(env, chatId, '', false);
+    await db.applyProfileToOrders(env, chatId, await db.getAddressProfile(env, chatId));
+    await askProfilePostal(env, chatId);
+    return;
+  }
+
+  const postal = normalizePostal(text);
+  if (!/^\d{10}$/.test(postal)) {
+    await api.sendMessage(env, chatId, '⚠️ کد پستی باید ۱۰ رقم باشد. دوباره بنویسید:', KB.skipPostalKeyboard());
+    return;
+  }
+  await db.saveProfilePostal(env, chatId, postal, false);
+  await finishAddressProfile(env, chatId);
+}
+
+export async function skipPostal(env, chatId) {
+  await db.saveProfilePostal(env, chatId, '', true);
+  await finishAddressProfile(env, chatId);
+}
+
+async function finishAddressProfile(env, chatId) {
+  await db.clearSession(env, chatId);
+  const profile = await db.getAddressProfile(env, chatId);
+  const changed = await db.applyProfileToOrders(env, chatId, profile);
+  const numbers = changed.map((o) => `1000${o.id}`).join('، ');
+  const suffix = changed.length ? `\nسفارش ${numbers} به همین آدرس ارسال می‌شود.` : '';
+  await api.sendMessage(env, chatId, `✅ مشخصات آدرس ذخیره شد.\n\n${profileText(profile)}${suffix}`, await menuKeyboardFor(env, chatId));
+  for (const order of changed) {
+    await notifyAdmin(env, `📍 <b>آدرس سفارش #1000${order.id} ثبت شد</b>\n🛍 ${escapeHtml(order.product_title || order.product_id)}\n${deliveryLines(order)}`);
+  }
+}
+
+// ----------------------------------------------------
+// بعد از پرداخت: کالاها از سبد برداشته می‌شوند و آدرس از پروفایل روی سفارش می‌آید
+// ----------------------------------------------------
+export async function prepareOrderDelivery(env, chatId, order) {
+  if (order.product_id === CART_PRODUCT_ID) await removeOrderItemsFromCart(env, chatId, order.id);
+  if (!needsAddress(order.os_type)) return order;
+  return db.attachAddressToOrder(env, order.id, await db.getAddressProfile(env, chatId));
+}
+
+// پیام بعد از پرداخت به مشتری: آدرس کامل ← فقط یادآوری آدرس | ناقص ← همین‌جا پرسیده می‌شود
+export async function followUpOrderAddress(env, chatId, order) {
+  if (!needsAddress(order.os_type)) return;
+  if (order.address_done_at) {
+    const profile = await db.getAddressProfile(env, chatId);
+    await api.sendMessage(env, chatId, `📦 سفارش به این آدرس ارسال می‌شود:\n${profileText(profile)}`, KB.addressActionKeyboard('✏️ تغییر آدرس'));
+    return;
+  }
+  await startAddressFill(env, chatId, '📍 <b>آخرین قدم:</b> برای ارسال سفارش به آدرس شما نیاز داریم.\n\n');
 }
 
 export async function continueCheckout(env, chatId, productId, osType) {
@@ -151,20 +281,32 @@ export async function priceBreakdown(env, chatId, product, osType = '', discount
   return { ...p, wallet, walletUsed, payable: p.price - walletUsed };
 }
 
-// متن تحویل برای پیام‌های ادمین: روش تحویل، تعداد و آدرس (از یادداشت سفارش)
+// متن تحویل برای پیام‌های ادمین: روش تحویل، آدرس و کد پستی، یا هشدار «منتظر آدرس»
 export function deliveryLines(order) {
   const label = variantLabel(order?.os_type);
   if (!label) return '';
   let text = `📦 ${label}\n`;
-  if (parseVariant(order.os_type).delivery === 'courier' && order.note) text += `${escapeHtml(order.note)}\n`;
+  if (!needsAddress(order.os_type)) return text;
+  if (!order.address_requested_at) {
+    // سفارش‌های قبل از پروفایل آدرس: آدرس در یادداشت است
+    if (String(order.note || '').startsWith('📍')) text += `${escapeHtml(order.note)}\n`;
+    return text;
+  }
+  if (order.ship_address) text += `📍 آدرس: ${escapeHtml(order.ship_address)}\n`;
+  if (order.ship_postal) text += `📮 کد پستی: <code>${escapeHtml(order.ship_postal)}</code>\n`;
+  if (!order.address_done_at) text += order.ship_address ? '⚠️ <b>منتظر کد پستی</b>\n' : '⚠️ <b>منتظر آدرس مشتری</b>\n';
+  else if (!order.ship_postal) text += '📮 کد پستی: مشتری نمی‌داند\n';
   return text;
 }
 
 // صدور پیش‌فاکتور: یک سفارش pending ساخته یا تازه می‌شود و دکمه‌ها به همان سفارش متصل‌اند
 export async function showPayment(env, chatId, productId, osType = '', discountPercent = 0) {
-  const product = await getFullProduct(env, productId);
+  const isCart = productId === CART_PRODUCT_ID;
+  const cartItems = isCart ? await getCart(env, chatId) : [];
+  const product = isCart ? (cartItems.length ? cartAsProduct(cartItems) : null) : await getFullProduct(env, productId);
   if (!product) {
-    await api.sendMessage(env, chatId, '❌ این محصول دیگر موجود نیست.', await menuKeyboardFor(env, chatId));
+    const text = isCart ? EMPTY_CART_TEXT : '❌ این محصول دیگر موجود نیست.';
+    await api.sendMessage(env, chatId, text, await menuKeyboardFor(env, chatId));
     return;
   }
 
@@ -183,10 +325,7 @@ export async function showPayment(env, chatId, productId, osType = '', discountP
     amount: b.price,
     walletUsed: b.walletUsed,
   });
-  if (order && parseVariant(osType).delivery === 'courier') {
-    const address = await getSavedAddress(env, chatId);
-    if (address) await db.setPendingOrderNote(env, order.id, chatId, `📍 آدرس: ${address}`);
-  }
+  if (order && isCart) await replaceOrderItems(env, order.id, cartItems);
 
   const keyboard = order
     ? KB.orderPaymentKeyboard(order.id, b.price > 0 && b.wallet >= b.price)
@@ -196,7 +335,7 @@ export async function showPayment(env, chatId, productId, osType = '', discountP
 
 // «ادامه خرید»: قیمت، موجودی و وضعیت دوباره بررسی و همان مرحله‌ی قبلی بازیابی می‌شود
 export async function resumeCheckout(env, chatId, order) {
-  const product = await getFullProduct(env, order.product_id);
+  const product = await getOrderProduct(env, order);
   const discountPercent = Number(order.discount_percent) || 0;
   const b = product ? await priceBreakdown(env, chatId, product, order.os_type || '', discountPercent) : null;
   if (!product || b.basePrice <= 0) {
@@ -225,12 +364,18 @@ function invoiceText(env, product, osType, discountPercent, b) {
   const { basePrice, discountAmount, shipping, price, wallet, walletUsed, payable } = b;
   const { delivery, quantity } = parseVariant(osType);
 
-  let text = `💳 <b>پیش‌فاکتور خرید:</b>\n\n🛍 محصول: ${escapeHtml(product.title)}\n`;
-  if (delivery) {
+  let text = '💳 <b>پیش‌فاکتور خرید:</b>\n\n';
+  if (product.items) {
+    for (const i of product.items) {
+      text += `▫️ ${escapeHtml(i.title)}: ${i.quantity.toLocaleString('fa-IR')} × ${money(i.unitPrice)} تومان\n`;
+    }
+    text += `💰 مبلغ کالا: ${money(basePrice)} تومان\n`;
+  } else if (delivery) {
+    text += `🛍 محصول: ${escapeHtml(product.title)}\n`;
     text += `🔢 تعداد: ${quantity.toLocaleString('fa-IR')} × ${money(product.price)} تومان\n`;
     text += `💰 مبلغ کالا: ${money(basePrice)} تومان\n`;
   } else {
-    text += `💰 قیمت: ${money(basePrice)} تومان\n`;
+    text += `🛍 محصول: ${escapeHtml(product.title)}\n💰 قیمت: ${money(basePrice)} تومان\n`;
   }
 
   if (discountPercent > 0) {
@@ -243,6 +388,10 @@ function invoiceText(env, product, osType, discountPercent, b) {
     text += shipping > 0
       ? `🛵 هزینه ارسال با پیک: ${money(shipping)} تومان\n`
       : `🛵 ارسال با پیک: <b>رایگان</b> (خرید بالای ${money(freeShippingMin(env))} تومان)\n`;
+  } else if (delivery === 'post') {
+    text += shipping > 0
+      ? `📦 هزینه ارسال با پست: ${money(shipping)} تومان\n`
+      : `📦 ارسال با پست: <b>رایگان</b> (خرید بالای ${money(freeShippingMin(env))} تومان)\n`;
   }
   text += `🧾 جمع کل: <b>${money(price)} تومان</b>\n`;
 
