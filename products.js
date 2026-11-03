@@ -20,10 +20,13 @@ function toProduct(row) {
     photoFileId: row.photo_file_id || '',
     price: Number(row.price) || 0,
     position: Number(row.position) || 0,
+    oldPrice: Number(row.old_price) || 0,
+    hidden: Boolean(row.hidden),
     needsOs: false,
   };
 }
 
+// همه‌ی محصولات، حتی پنهان‌ها (پنل ادمین)؛ منوی کاربر فقط !hidden را نشان می‌دهد
 export async function listProducts(env) {
   const { results } = await env.DB.prepare('SELECT * FROM products ORDER BY position, id').all();
   return (results || []).map(toProduct);
@@ -42,7 +45,7 @@ export async function getFullProduct(env, productId) {
 
 export async function findProductIdByButton(env, buttonText) {
   if (!buttonText) return null;
-  const row = await env.DB.prepare('SELECT id FROM products WHERE title = ?').bind(buttonText).first();
+  const row = await env.DB.prepare('SELECT id FROM products WHERE title = ? AND hidden = 0').bind(buttonText).first();
   return row ? String(row.id) : null;
 }
 
@@ -66,7 +69,14 @@ export async function addProduct(env, { title, description, photoFileId, price, 
   return getFullProduct(env, inserted.meta.last_row_id);
 }
 
-const EDITABLE_FIELDS = { title: 'title', description: 'description', photoFileId: 'photo_file_id', price: 'price' };
+const EDITABLE_FIELDS = {
+  title: 'title',
+  description: 'description',
+  photoFileId: 'photo_file_id',
+  price: 'price',
+  oldPrice: 'old_price',
+  hidden: 'hidden',
+};
 
 export async function updateProduct(env, productId, patch) {
   for (const [key, column] of Object.entries(EDITABLE_FIELDS)) {
@@ -103,9 +113,13 @@ export async function deleteProduct(env, productId) {
 
 export function buildProductCaption(product) {
   let text = `🛍 <b>${escapeHtml(product.title)}</b>\n\n${escapeHtml(product.description)}\n\n`;
-  text += product.price > 0
-    ? `💰 قیمت: <b>${money(product.price)} تومان</b>`
-    : '⚠️ این محصول هنوز قیمت‌گذاری نشده است.';
+  if (product.price > 0 && product.oldPrice > product.price) {
+    text += `💰 قیمت: <s>${money(product.oldPrice)}</s> تومان\n🔥 تخفیف ویژه: <b>${money(product.price)} تومان</b>`;
+  } else {
+    text += product.price > 0
+      ? `💰 قیمت: <b>${money(product.price)} تومان</b>`
+      : '⚠️ این محصول هنوز قیمت‌گذاری نشده است.';
+  }
   return text;
 }
 
@@ -161,7 +175,8 @@ export function shippingFee(env, variant, itemsTotal) {
 // مبلغ نهایی سفارش: تخفیف فقط روی کالا، هزینه‌ی ارسال بعد از تخفیف اضافه می‌شود
 export function orderPrice(env, product, variant = '', discountPercent = 0) {
   const basePrice = resolvePrice(product, variant);
-  const discountAmount = Math.round((basePrice * discountPercent) / 100);
+  // در سبد خرید، کد ممکن است فقط شامل بعضی ردیف‌ها شود
+  const discountAmount = Math.round(((product?.discountableTotal ?? basePrice) * discountPercent) / 100);
   const itemsTotal = Math.max(0, basePrice - discountAmount);
   const shipping = basePrice > 0 ? shippingFee(env, variant, itemsTotal) : 0;
   return { basePrice, discountAmount, itemsTotal, shipping, price: itemsTotal + shipping };

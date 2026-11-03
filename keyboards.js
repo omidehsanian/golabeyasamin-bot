@@ -8,6 +8,9 @@ export const SUPPORT_BUTTON = '📞 ارتباط با ادمین';
 export const CUSTOM_BOT_BUTTON = '🤖 ساخت ربات';
 export const CART_BUTTON = '🛒 سبد خرید';
 export const ADDRESS_BUTTON = '📍 مشخصات آدرس';
+export const ADMIN_DISCOUNTS_BUTTON = '🎟 کدهای تخفیف';
+// دکمه‌ی روشن/خاموش سبد خرید برای ادمین‌ها (متن وضعیت بعد از این پیشوند می‌آید)
+export const CART_TOGGLE_PREFIX = '⚙️ سبد خرید';
 
 // متن دکمه‌های ثابت منو؛ نام محصول نباید با این‌ها یکی باشد
 export const RESERVED_BUTTONS = [
@@ -21,6 +24,7 @@ export const RESERVED_BUTTONS = [
   CUSTOM_BOT_BUTTON,
   CART_BUTTON,
   ADDRESS_BUTTON,
+  ADMIN_DISCOUNTS_BUTTON,
   '🔙 انصراف',
   '📱 ثبت نام',
   '🔙 شاید بعدا',
@@ -37,10 +41,21 @@ export function productRows(items, columns = 2, featuredFirst = false) {
 
 // products: محصولات به ترتیب position
 // opts.superAdmin: سفارشات و پیام همگانی | opts.admin: ساخت/مدیریت محصولات
+// opts.cart: دکمه‌ی سبد دیده شود | opts.cartToggle: null = دکمه‌ی ادمین نباشد، true/false = وضعیت فعلی
+// opts.hasProducts: محصولی هست، حتی اگر همه پنهان باشند
 export function mainMenuKeyboard(products = [], opts = {}) {
-  const { superAdmin = false, admin = superAdmin, columns = 2, featuredFirst = false, customBot = false } = opts;
+  const {
+    superAdmin = false,
+    admin = superAdmin,
+    columns = 2,
+    featuredFirst = false,
+    customBot = false,
+    cart = true,
+    cartToggle = null,
+    hasProducts = products.length > 0,
+  } = opts;
   const keyboard = productRows(products, columns, featuredFirst).map((row) => row.map((p) => ({ text: p.buttonText })));
-  keyboard.push([{ text: CART_BUTTON }, { text: ADDRESS_BUTTON }]);
+  keyboard.push(cart ? [{ text: CART_BUTTON }, { text: ADDRESS_BUTTON }] : [{ text: ADDRESS_BUTTON }]);
   keyboard.push([{ text: WALLET_BUTTON }, { text: INVITE_BUTTON }]);
   keyboard.push(customBot ? [{ text: SUPPORT_BUTTON }, { text: CUSTOM_BOT_BUTTON }] : [{ text: SUPPORT_BUTTON }]);
 
@@ -49,7 +64,10 @@ export function mainMenuKeyboard(products = [], opts = {}) {
   }
   if (admin) {
     // تا وقتی محصولی نیست فقط «ساخت محصول»
-    keyboard.push(products.length ? [{ text: NEW_PRODUCT_BUTTON }, { text: MANAGE_PRODUCTS_BUTTON }] : [{ text: NEW_PRODUCT_BUTTON }]);
+    keyboard.push(hasProducts ? [{ text: NEW_PRODUCT_BUTTON }, { text: MANAGE_PRODUCTS_BUTTON }] : [{ text: NEW_PRODUCT_BUTTON }]);
+    const row = [{ text: ADMIN_DISCOUNTS_BUTTON }];
+    if (cartToggle !== null) row.push({ text: `${CART_TOGGLE_PREFIX}: ${cartToggle ? 'روشن ✅' : 'خاموش ⛔'}` });
+    keyboard.push(row);
   }
 
   return { keyboard, resize_keyboard: true };
@@ -89,6 +107,12 @@ export function productKeyboard(product, quantity = 0) {
       [{ text: '🛒 مشاهده سبد و ثبت سفارش', callback_data: 'cart:view' }],
     ],
   };
+}
+
+// خرید مستقیم وقتی سبد خاموش است: تعداد ← روش تحویل (مسیر qty: در callback.js)
+export function directBuyKeyboard(product) {
+  const button = (n) => ({ text: `${n.toLocaleString('fa-IR')} عدد`, callback_data: `qty:${product.id}:${n}` });
+  return { inline_keyboard: [[button(1), button(2), button(3)], [button(5), button(10), button(20)]] };
 }
 
 export function cartKeyboard(items) {

@@ -4,18 +4,33 @@
 // با product_id = 'cart' و os_type تک‌حرفی (c | p | s) است، پس منطق پرداخت، کیف پول و تایید تغییری نمی‌کند.
 // قیمت سفارش از همان کپی خوانده می‌شود: مبلغی که مشتری روی پیش‌فاکتور دیده، با تغییر قیمت عوض نمی‌شود.
 
+import * as db from './db.js';
+import { cartConfigEnabled } from './config.js';
 import { getFullProduct, MAX_QUANTITY } from './products.js';
 
 export const CART_PRODUCT_ID = 'cart';
 
+const SWITCH_KEY = 'cart_active';
+
+// CART_ENABLED در wrangler.toml کل بخش را باز یا بسته می‌کند و دکمه‌ی «⚙️ سبد خرید» ادمین،
+// در صورت باز بودن، آن را برای کاربران روشن یا خاموش می‌کند (پیش‌فرض روشن).
+export async function isCartActive(env) {
+  if (!cartConfigEnabled(env)) return false;
+  return (await db.getSetting(env, SWITCH_KEY, '1')) !== '0';
+}
+
+export async function setCartActive(env, on) {
+  await db.setSetting(env, SWITCH_KEY, on ? '1' : '0');
+}
+
 const validId = (productId) => /^\d+$/.test(String(productId ?? ''));
 
-// محصول حذف‌شده یا بدون قیمت در سبد نمی‌ماند
+// محصول حذف‌شده، پنهان یا بدون قیمت در سبد نمی‌ماند
 export async function getCart(env, chatId) {
   const { results } = await env.DB.prepare(
     `SELECT c.product_id, c.quantity, p.title, p.price
      FROM cart_items c JOIN products p ON p.id = c.product_id
-     WHERE c.chat_id = ? AND p.price > 0
+     WHERE c.chat_id = ? AND p.price > 0 AND p.hidden = 0
      ORDER BY p.position, p.id`
   ).bind(String(chatId)).all();
   return (results || []).map((r) => ({
@@ -37,7 +52,7 @@ export async function cartQuantity(env, chatId, productId) {
 // تعداد را تغییر می‌دهد و مقدار نهایی را برمی‌گرداند (null: محصول قابل خرید نیست)؛ تعداد صفر یعنی حذف از سبد
 export async function changeCartQuantity(env, chatId, productId, delta) {
   const product = await getFullProduct(env, productId);
-  if (!product || product.price <= 0) return null;
+  if (!product || product.price <= 0 || product.hidden) return null;
   const current = await cartQuantity(env, chatId, productId);
   const quantity = Math.min(Math.max(0, current + delta), MAX_QUANTITY);
   if (quantity === 0) {
@@ -71,14 +86,15 @@ export async function getOrderItems(env, orderId) {
     title: r.title,
     unitPrice: Number(r.unit_price) || 0,
     quantity: Number(r.quantity) || 0,
+    discounted: Boolean(r.discounted),
   }));
 }
 
 export async function replaceOrderItems(env, orderId, items) {
-  const insert = env.DB.prepare('INSERT INTO order_items (order_id, product_id, title, unit_price, quantity) VALUES (?, ?, ?, ?, ?)');
+  const insert = env.DB.prepare('INSERT INTO order_items (order_id, product_id, title, unit_price, quantity, discounted) VALUES (?, ?, ?, ?, ?, ?)');
   await env.DB.batch([
     env.DB.prepare('DELETE FROM order_items WHERE order_id = ?').bind(Number(orderId)),
-    ...items.map((i) => insert.bind(Number(orderId), Number(i.productId), i.title, i.unitPrice, i.quantity)),
+    ...items.map((i) => insert.bind(Number(orderId), Number(i.productId), i.title, i.unitPrice, i.quantity, i.discounted === false ? 0 : 1)),
   ]);
 }
 
@@ -92,7 +108,19 @@ export function itemsSummary(items) {
 
 // سبد به شکل یک «محصول» با قیمت کل، تا محاسبه‌ی تخفیف و هزینه‌ی ارسال همان مسیر تک‌محصولی باشد
 export function cartAsProduct(items) {
-  return { id: CART_PRODUCT_ID, title: itemsSummary(items), price: itemsTotal(items), items };
+  return {
+    id: CART_PRODUCT_ID,
+    title: itemsSummary(items),
+    price: itemsTotal(items),
+    // فقط ردیف‌هایی که کد تخفیف شامل آن‌ها می‌شود
+    discountableTotal: itemsTotal(items.filter((i) => i.discounted !== false)),
+    items,
+  };
+}
+
+// scope: محصولی که کد تخفیف فقط روی آن اعمال می‌شود (null = همه)
+export function applyDiscountScope(items, scope = null) {
+  return items.map((i) => ({ ...i, discounted: !scope || scope === i.productId }));
 }
 
 export async function getOrderProduct(env, order) {

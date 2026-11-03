@@ -40,6 +40,10 @@ export function productFeaturedFirst(env) {
   return String(env?.PRODUCT_FEATURED_FIRST || 'false').toLowerCase() === 'true';
 }
 
+export function cartConfigEnabled(env) {
+  return String(env?.CART_ENABLED ?? 'true').toLowerCase() === 'true';
+}
+
 export function money(amount) {
   return Number(amount || 0).toLocaleString('fa-IR');
 }

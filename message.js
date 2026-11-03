@@ -2,8 +2,10 @@ import * as api from './api.js';
 import * as db from './db.js';
 import * as KB from './keyboards.js';
 import { findProductIdByButton, getFullProduct, orderPrice, escapeHtml } from './products.js';
-import { CART_PRODUCT_ID, getOrderProduct, replaceOrderItems } from './cart.js';
-import { isSuperAdmin, isAdmin, money, signupBonus, shopName, customBotEnabled, supportPhoneLink } from './config.js';
+import { CART_PRODUCT_ID, getOrderProduct, isCartActive, replaceOrderItems, setCartActive } from './cart.js';
+import { resolveDiscountCode } from './discounts.js';
+import { DISCOUNT_SESSION_STATE, handleDiscountInput, showDiscountsPanel } from './admin_discounts.js';
+import { cartConfigEnabled, isSuperAdmin, isAdmin, money, signupBonus, shopName, customBotEnabled, supportPhoneLink } from './config.js';
 import {
   menuKeyboardFor,
   canProceed,
@@ -30,18 +32,6 @@ import {
 } from './admin_products.js';
 import { sendUsersExcel } from './admin_users.js';
 
-function getValidDiscountCodes(env) {
-  const raw = env.DISCOUNT_CODES || '';
-  const codes = {};
-  raw.split(',').forEach(item => {
-    const [code, percent] = item.split(':');
-    if (code && percent) {
-      codes[code.trim().toUpperCase()] = Number(percent);
-    }
-  });
-  return codes;
-}
-
 export async function handleMessage(env, message) {
   const chatId = String(message.chat.id);
   const text = String(message.text || '').trim();
@@ -59,6 +49,8 @@ export async function handleMessage(env, message) {
       helpMsg += `📖 <b>پنل مدیریت:</b>\n` +
         `🔹 دکمه «${KB.NEW_PRODUCT_BUTTON}»\n👉 ساخت محصول: نام ← ویژگی‌ها ← عکس ← قیمت ← جایگاه دکمه\n` +
         `🔹 دکمه «${KB.MANAGE_PRODUCTS_BUTTON}»\n👉 ویرایش نام/ویژگی‌ها/عکس/قیمت، جابجایی و حذف محصولات\n` +
+        `🔹 دکمه «${KB.ADMIN_DISCOUNTS_BUTTON}»\n👉 ساخت کد برای یک محصول یا همه، با مدت یک روز، یک هفته یا دائمی\n` +
+        `🔹 دکمه «${KB.CART_TOGGLE_PREFIX}»\n👉 روشن/خاموش کردن سبد خرید\n` +
         `🔹 <code>/toggrediscount</code>\n👉 روشن یا خاموش کردن سیستم کد تخفیف\n` +
         `🔹 <code>/unlockdiscount [chat_id]</code>\n👉 برداشتن قفل کد تخفیف کاربر (یا خودتان)\n` +
         `🔹 <code>/order شماره</code>\n👉 جزئیات کامل یک سفارش (مثال: <code>/order 100026</code>)\n\n`;
@@ -138,6 +130,28 @@ export async function handleMessage(env, message) {
 
   if (isSuperAdmin(env, chatId) && (text === '/orders' || text === KB.ADMIN_ORDERS_BUTTON)) {
     await showOrdersPanel(env, chatId);
+    return;
+  }
+
+  if (isAdmin(env, chatId) && text === KB.ADMIN_DISCOUNTS_BUTTON) {
+    await db.clearSession(env, chatId);
+    await showDiscountsPanel(env, chatId);
+    return;
+  }
+
+  // روشن/خاموش کردن سبد خرید (همه‌ی ادمین‌ها)؛ با CART_ENABLED = "false" این دکمه وجود ندارد
+  if (isAdmin(env, chatId) && text.startsWith(KB.CART_TOGGLE_PREFIX) && cartConfigEnabled(env)) {
+    await db.clearSession(env, chatId);
+    const on = !(await isCartActive(env));
+    await setCartActive(env, on);
+    await api.sendMessage(
+      env,
+      chatId,
+      on
+        ? '✅ سبد خرید <b>روشن</b> شد؛ دکمه‌ی آن در منوی کاربران نمایش داده می‌شود.'
+        : '⛔ سبد خرید <b>خاموش</b> شد؛ مشتری از صفحه‌ی محصول مستقیم خرید می‌کند و محتوای سبدها پاک نمی‌شود.',
+      await menuKeyboardFor(env, chatId)
+    );
     return;
   }
 
@@ -262,6 +276,17 @@ export async function handleMessage(env, message) {
     }
   }
 
+  // ساخت کد تخفیف؛ زدن یکی از دکمه‌های ثابت منو یعنی ادمین از این فرم بیرون رفته
+  if (session.state === DISCOUNT_SESSION_STATE && isAdmin(env, chatId)) {
+    if (KB.RESERVED_BUTTONS.includes(text)) {
+      await db.clearSession(env, chatId);
+      session.state = null;
+    } else {
+      await handleDiscountInput(env, chatId, session, text);
+      return;
+    }
+  }
+
   // مشخصات آدرس؛ زدن یکی از دکمه‌های منو یعنی کاربر از فرم بیرون رفته (یادآوری سفارش سر جایش می‌ماند)
   if (ADDRESS_SESSION_STATES.includes(session.state)) {
     if (KB.RESERVED_BUTTONS.includes(text) || (await findProductIdByButton(env, text))) {
@@ -306,16 +331,15 @@ export async function handleMessage(env, message) {
     const data = session.data || {};
     let attempts = data.attempts || 0;
 
-    const validCodes = getValidDiscountCodes(env);
-    const code = text.toUpperCase();
+    const discount = await resolveDiscountCode(env, text, data.productId, chatId);
 
-    if (validCodes[code]) {
+    if (discount.ok) {
       await db.setUserDiscountLock(env, chatId, 0);
-      const percentOff = validCodes[code];
+      const percentOff = discount.percent;
       // درصد تخفیف روی خود سفارش pending ذخیره می‌شود (نه در session)
       await db.clearSession(env, chatId);
       await api.sendMessage(env, chatId, `🎟️ <b>کد تخفیف ${percentOff}% با موفقیت اعمال شد!</b>`, await menuKeyboardFor(env, chatId));
-      await showPayment(env, chatId, data.productId, data.osType || '', percentOff);
+      await showPayment(env, chatId, data.productId, data.osType || '', percentOff, discount.scope);
       return;
     } else {
       attempts++;
@@ -332,17 +356,21 @@ export async function handleMessage(env, message) {
         return;
       } else {
         await db.setSession(env, chatId, 'awaiting_discount_code', { ...data, attempts });
+        const problem = {
+          expired: '⌛ مهلت این کد تخفیف تمام شده است.',
+          not_applicable: '❌ این کد تخفیف برای این خرید معتبر نیست.',
+        }[discount.reason] || '❌ کد تخفیف اشتباه است.';
         await api.sendMessage(
           env,
           chatId,
-          `❌ کد تخفیف اشتباه است. (${attempts} از ۳ تلاش)\nلطفاً دوباره کد صحیح را وارد کنید یا /cancel را بزنید:`
+          `${problem} (${attempts} از ۳ تلاش)\nلطفاً دوباره کد صحیح را وارد کنید یا /cancel را بزنید:`
         );
         return;
       }
     }
   }
 
-  if (text === KB.CART_BUTTON) {
+  if (text === KB.CART_BUTTON && (await isCartActive(env))) {
     if (!(await canProceed(env, chatId))) return;
     await showCart(env, chatId);
     return;

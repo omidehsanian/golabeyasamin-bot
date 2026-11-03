@@ -11,14 +11,15 @@
 //   pa_new            شروع ساخت محصول
 //   pa_list           لیست محصولات
 //   pa:<id>           صفحه‌ی مدیریت یک محصول
-//   pe:<id>:<field>   ویرایش یک بخش (title | description | photo | price | position)
+//   pe:<id>:<field>   ویرایش یک بخش (title | description | photo | price | position | old_price)
+//   ph:<id>           پنهان / نمایش در منو
 //   pd:<id>           سوال حذف      pdok:<id>  حذف قطعی
 //   pnew_ok           ثبت محصول جدید (اطلاعات از سشن خوانده می‌شود)
 //   pnew_no           انصراف از ساخت
 
 import * as api from './api.js';
 import * as db from './db.js';
-import { cancelKeyboard, productRows, RESERVED_BUTTONS } from './keyboards.js';
+import { CART_TOGGLE_PREFIX, cancelKeyboard, productRows, RESERVED_BUTTONS } from './keyboards.js';
 import { money, productColumns, productFeaturedFirst } from './config.js';
 import { menuKeyboardFor } from './flows.js';
 import {
@@ -48,6 +49,7 @@ const FIELD_LABELS = {
   photo: 'عکس محصول',
   price: 'قیمت',
   position: 'جایگاه دکمه',
+  old_price: 'قیمت خط‌خورده',
 };
 
 // عدد فارسی/عربی، جداکننده‌ی هزارگان و کلمه‌ی «تومان» پذیرفته می‌شود
@@ -72,7 +74,7 @@ async function validateTitle(env, text, exceptId = null) {
   if (title.includes('\n')) return { error: '⚠️ نام محصول باید یک خط باشد.' };
   if (title.length > MAX_TITLE_LENGTH) return { error: `⚠️ نام محصول حداکثر ${MAX_TITLE_LENGTH} کاراکتر باشد (الان ${title.length}).` };
   if (title.startsWith('/')) return { error: '⚠️ نام محصول نباید با / شروع شود.' };
-  if (RESERVED_BUTTONS.includes(title)) return { error: '⚠️ این نام متعلق به یکی از دکمه‌های ثابت منوست؛ نام دیگری انتخاب کنید.' };
+  if (RESERVED_BUTTONS.includes(title) || title.startsWith(CART_TOGGLE_PREFIX)) return { error: '⚠️ این نام متعلق به یکی از دکمه‌های ثابت منوست؛ نام دیگری انتخاب کنید.' };
   if (await titleTaken(env, title, exceptId)) return { error: '⚠️ محصولی با همین نام وجود دارد؛ نام دیگری انتخاب کنید.' };
   return { value: title };
 }
@@ -96,6 +98,16 @@ function validatePrice(text) {
   const price = parsePriceInput(text);
   if (price === null || price <= 0) return { error: '⚠️ قیمت را فقط به‌صورت عدد و به تومان بفرستید (مثلاً <code>250000</code>).' };
   return { value: price };
+}
+
+// صفر یعنی بدون تخفیف ویژه
+function validateOldPrice(text, price) {
+  const oldPrice = parsePriceInput(text);
+  if (oldPrice === null) return { error: '⚠️ لطفاً فقط عدد بفرستید یا «🔙 انصراف» را بزنید.' };
+  if (oldPrice > 0 && oldPrice <= price) {
+    return { error: `⚠️ قیمت خط‌خورده باید از قیمت فروش (${money(price)} تومان) بیشتر باشد. عدد <code>0</code> یعنی بدون تخفیف ویژه.` };
+  }
+  return { value: oldPrice };
 }
 
 function validatePosition(text, max) {
@@ -250,6 +262,7 @@ async function startEdit(env, chatId, product, field) {
     description: `📋 ویژگی‌های فعلی:\n${escapeHtml(product.description)}\n\nمتن جدید ویژگی‌ها را بفرستید (حداکثر ${MAX_DESCRIPTION_LENGTH} کاراکتر):`,
     photo: '🖼 عکس جدید محصول را بفرستید:',
     price: `💰 قیمت فعلی: <b>${money(product.price)} تومان</b>\n\nقیمت جدید را به تومان بفرستید:`,
+    old_price: `🏷 قیمت فروش: <b>${money(product.price)} تومان</b>\n\nقیمت قبل از تخفیف را به تومان بفرستید. روی صفحه‌ی محصول خط می‌خورد و مبلغ فاکتور همان قیمت فروش است. عدد <code>0</code> یعنی بدون تخفیف ویژه:`,
   };
   await api.sendMessage(env, chatId, prompts[field], cancelKeyboard());
 }
@@ -269,6 +282,7 @@ async function handleEditStep(env, chatId, session, message) {
   else if (field === 'description') r = validateDescription(text);
   else if (field === 'photo') r = validatePhoto(message);
   else if (field === 'price') r = validatePrice(text);
+  else if (field === 'old_price') r = validateOldPrice(text, product.price);
   else r = validatePosition(text, await countProducts(env));
   if (r.error) {
     await api.sendMessage(env, chatId, r.error);
@@ -277,6 +291,7 @@ async function handleEditStep(env, chatId, session, message) {
 
   if (field === 'position') await moveProduct(env, product.id, r.value);
   else if (field === 'photo') await updateProduct(env, product.id, { photoFileId: r.value });
+  else if (field === 'old_price') await updateProduct(env, product.id, { oldPrice: r.value });
   else await updateProduct(env, product.id, { [field]: r.value });
 
   await db.clearSession(env, chatId);
@@ -297,14 +312,14 @@ export async function handleProductSessionMessage(env, chatId, session, message)
 export async function showProductsAdmin(env, chatId) {
   const products = await listProducts(env);
   const rows = products.map((p) => [
-    { text: `${p.position}. ${p.title} — ${p.price > 0 ? money(p.price) : 'بدون قیمت'}`, callback_data: `pa:${p.id}` },
+    { text: `${p.hidden ? '🚫 ' : ''}${p.position}. ${p.title} — ${p.price > 0 ? money(p.price) : 'بدون قیمت'}`, callback_data: `pa:${p.id}` },
   ]);
   rows.push([{ text: '➕ ساخت محصول جدید', callback_data: 'pa_new' }]);
   await api.sendMessage(
     env,
     chatId,
     products.length
-      ? '🛠 <b>مدیریت محصولات</b>\n\nمحصولات به ترتیب جایگاه دکمه‌ها (قیمت به تومان). برای ویرایش، جابجایی یا حذف روی محصول بزنید:'
+      ? '🛠 <b>مدیریت محصولات</b>\n\nمحصولات به ترتیب جایگاه دکمه‌ها (قیمت به تومان؛ 🚫 = پنهان از منو). برای ویرایش، جابجایی یا حذف روی محصول بزنید:'
       : '🛠 هنوز هیچ محصولی ساخته نشده است.',
     { inline_keyboard: rows }
   );
@@ -317,7 +332,8 @@ export async function showProductAdmin(env, chatId, productId) {
     return;
   }
   const total = await countProducts(env);
-  const caption = `${buildProductCaption(product)}\n\n🔢 جایگاه: ${product.position} از ${total}`;
+  const caption =
+    `${buildProductCaption(product)}\n\n🔢 جایگاه: ${product.position} از ${total}` + (product.hidden ? '\n🚫 پنهان از منو' : '');
   const keyboard = {
     inline_keyboard: [
       [
@@ -327,6 +343,10 @@ export async function showProductAdmin(env, chatId, productId) {
       [
         { text: '🖼 عکس', callback_data: `pe:${product.id}:photo` },
         { text: '💰 قیمت', callback_data: `pe:${product.id}:price` },
+      ],
+      [
+        { text: '🏷 قیمت خط‌خورده', callback_data: `pe:${product.id}:old_price` },
+        { text: product.hidden ? '👁 نمایش در منو' : '🚫 پنهان از منو', callback_data: `ph:${product.id}` },
       ],
       [
         { text: '🔢 جابجایی', callback_data: `pe:${product.id}:position` },
@@ -344,7 +364,7 @@ export async function showProductAdmin(env, chatId, productId) {
 // ----------------------------------------------------
 
 export function isProductCallback(data) {
-  return data === 'pa_new' || data === 'pa_list' || data === 'pnew_ok' || data === 'pnew_no' || /^(pa|pe|pd|pdok):/.test(data);
+  return data === 'pa_new' || data === 'pa_list' || data === 'pnew_ok' || data === 'pnew_no' || /^(pa|pe|ph|pd|pdok):/.test(data);
 }
 
 export async function handleProductCallback(env, chatId, data, callbackId, messageId) {
@@ -424,6 +444,15 @@ export async function handleProductCallback(env, chatId, data, callbackId, messa
     }
     await api.answerCallbackQuery(env, callbackId);
     await startEdit(env, chatId, product, field);
+    return true;
+  }
+
+  if (action === 'ph') {
+    await updateProduct(env, product.id, { hidden: product.hidden ? 0 : 1 });
+    await api.answerCallbackQuery(env, callbackId, { text: product.hidden ? '👁 در منو نمایش داده می‌شود' : '🚫 از منو پنهان شد' });
+    await clearButtons();
+    await api.sendMessage(env, chatId, '✅ وضعیت نمایش محصول تغییر کرد.', await menuKeyboardFor(env, chatId));
+    await showProductAdmin(env, chatId, product.id);
     return true;
   }
 

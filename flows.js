@@ -11,8 +11,8 @@ import {
   shippingInfoText,
   variantLabel,
 } from './products.js';
-import { CART_PRODUCT_ID, cartAsProduct, cartQuantity, getCart, getOrderProduct, itemsTotal, removeOrderItemsFromCart, replaceOrderItems } from './cart.js';
-import { cashbackPercent, channelEnabled, customBotEnabled, freeShippingMin, money, isAdmin, isSuperAdmin, productColumns, productFeaturedFirst } from './config.js';
+import { CART_PRODUCT_ID, applyDiscountScope, cartAsProduct, cartQuantity, getCart, getOrderProduct, isCartActive, itemsTotal, removeOrderItemsFromCart, replaceOrderItems } from './cart.js';
+import { cartConfigEnabled, cashbackPercent, channelEnabled, customBotEnabled, freeShippingMin, money, isAdmin, isSuperAdmin, productColumns, productFeaturedFirst } from './config.js';
 
 const BROADCAST_SOURCE_KEY = 'broadcast_source';
 
@@ -48,12 +48,18 @@ export async function canProceed(env, chatId) {
 // منوی اصلی: دکمه‌ی محصولات به ترتیب جایگاه + دکمه‌های ادمین
 // ----------------------------------------------------
 export async function menuKeyboardFor(env, chatId) {
-  return KB.mainMenuKeyboard(await listProducts(env), {
+  const products = await listProducts(env);
+  const admin = isAdmin(env, chatId);
+  const cart = await isCartActive(env);
+  return KB.mainMenuKeyboard(products.filter((p) => !p.hidden), {
     superAdmin: isSuperAdmin(env, chatId),
-    admin: isAdmin(env, chatId),
+    admin,
     columns: productColumns(env),
     featuredFirst: productFeaturedFirst(env),
     customBot: customBotEnabled(env),
+    cart,
+    cartToggle: admin && cartConfigEnabled(env) ? cart : null,
+    hasProducts: products.length > 0,
   });
 }
 
@@ -75,14 +81,19 @@ export async function resumeAfterRegistration(env, chatId) {
 // ----------------------------------------------------
 export async function showProduct(env, chatId, productId) {
   const product = await getFullProduct(env, productId);
-  if (!product) {
+  if (!product || product.hidden) {
     await api.sendMessage(env, chatId, '❌ محصول پیدا نشد.', await menuKeyboardFor(env, chatId));
     return;
   }
 
   let text = buildProductCaption(product);
   if (product.price > 0) text += `\n\n${shippingInfoText(env)}`;
-  const keyboard = product.price > 0 ? KB.productKeyboard(product, await cartQuantity(env, chatId, productId)) : null;
+  let keyboard = null;
+  if (product.price > 0) {
+    keyboard = (await isCartActive(env))
+      ? KB.productKeyboard(product, await cartQuantity(env, chatId, productId))
+      : KB.directBuyKeyboard(product);
+  }
   if (product.photoFileId) {
     await api.sendPhoto(env, chatId, product.photoFileId, text, keyboard);
   } else {
@@ -300,11 +311,16 @@ export function deliveryLines(order) {
 }
 
 // صدور پیش‌فاکتور: یک سفارش pending ساخته یا تازه می‌شود و دکمه‌ها به همان سفارش متصل‌اند
-export async function showPayment(env, chatId, productId, osType = '', discountPercent = 0) {
+// discountScope: محصولی که کد تخفیف فقط روی آن اعمال می‌شود (برای سبد خرید؛ null = همه)
+export async function showPayment(env, chatId, productId, osType = '', discountPercent = 0, discountScope = null) {
   const isCart = productId === CART_PRODUCT_ID;
-  const cartItems = isCart ? await getCart(env, chatId) : [];
+  if (isCart && !(await isCartActive(env))) {
+    await api.sendMessage(env, chatId, '⛔ سبد خرید در حال حاضر غیرفعال است.', await menuKeyboardFor(env, chatId));
+    return;
+  }
+  const cartItems = isCart ? applyDiscountScope(await getCart(env, chatId), discountScope) : [];
   const product = isCart ? (cartItems.length ? cartAsProduct(cartItems) : null) : await getFullProduct(env, productId);
-  if (!product) {
+  if (!product || product.hidden) {
     const text = isCart ? EMPTY_CART_TEXT : '❌ این محصول دیگر موجود نیست.';
     await api.sendMessage(env, chatId, text, await menuKeyboardFor(env, chatId));
     return;
@@ -338,7 +354,7 @@ export async function resumeCheckout(env, chatId, order) {
   const product = await getOrderProduct(env, order);
   const discountPercent = Number(order.discount_percent) || 0;
   const b = product ? await priceBreakdown(env, chatId, product, order.os_type || '', discountPercent) : null;
-  if (!product || b.basePrice <= 0) {
+  if (!product || product.hidden || b.basePrice <= 0) {
     await api.sendMessage(env, chatId, '⚠️ این محصول در حال حاضر قابل خرید نیست. لطفاً از منو محصول دیگری انتخاب کنید.', await menuKeyboardFor(env, chatId));
     return;
   }

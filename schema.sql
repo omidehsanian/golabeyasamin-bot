@@ -91,10 +91,21 @@ CREATE TABLE IF NOT EXISTS order_items (
     product_id INTEGER NOT NULL,
     title      TEXT NOT NULL,
     unit_price INTEGER NOT NULL,
-    quantity   INTEGER NOT NULL
+    quantity   INTEGER NOT NULL,
+    discounted INTEGER NOT NULL DEFAULT 1      -- کد تخفیف شامل این ردیف می‌شود
 );
 
 CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items (order_id);
+
+-- کد تخفیف ساخته‌شده از داخل ربات (🎟 کدهای تخفیف)
+CREATE TABLE IF NOT EXISTS discount_codes (
+    code       TEXT PRIMARY KEY,               -- همیشه با حروف بزرگ
+    percent    INTEGER NOT NULL,
+    product_id TEXT,                           -- NULL = همه‌ی محصولات
+    expires_at INTEGER,                        -- میلی‌ثانیه‌ی Unix؛ NULL = دائمی
+    created_by TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 
 -- محصولات فروشگاه (ادمین از داخل ربات می‌سازد: ➕ ساخت محصول)
 -- position: جایگاه دکمه در منوی اصلی، پشت‌سرهم از ۱
@@ -105,6 +116,8 @@ CREATE TABLE IF NOT EXISTS products (
     photo_file_id TEXT NOT NULL DEFAULT '',
     price         INTEGER NOT NULL DEFAULT 0,
     position      INTEGER NOT NULL,
+    old_price     INTEGER NOT NULL DEFAULT 0, -- قیمت خط‌خورده (۰ = ندارد)
+    hidden        INTEGER NOT NULL DEFAULT 0,
     created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

@@ -197,6 +197,29 @@ export async function isDiscountActive(env) {
   return env.DISCOUNT_ENABLED === 'true';
 }
 
+// کدهای تخفیف ساخته‌شده از داخل ربات
+export async function getDiscountCode(env, code) {
+  return env.DB.prepare('SELECT * FROM discount_codes WHERE code = ?').bind(code).first();
+}
+
+export async function listActiveDiscountCodes(env, now) {
+  const { results } = await env.DB.prepare(
+    'SELECT * FROM discount_codes WHERE expires_at IS NULL OR expires_at > ? ORDER BY created_at DESC, code'
+  ).bind(now).all();
+  return results || [];
+}
+
+// کد منقضی‌شده با همان نام دوباره قابل ساخت است
+export async function saveDiscountCode(env, { code, percent, productId, expiresAt, createdBy }) {
+  await env.DB.prepare(
+    'INSERT OR REPLACE INTO discount_codes (code, percent, product_id, expires_at, created_by) VALUES (?, ?, ?, ?, ?)'
+  ).bind(code, percent, productId, expiresAt, String(createdBy)).run();
+}
+
+export async function deleteDiscountCode(env, code) {
+  await env.DB.prepare('DELETE FROM discount_codes WHERE code = ?').bind(code).run();
+}
+
 export async function setSetting(env, key, value) {
   await env.DB.prepare(
     `INSERT INTO settings (key, value) VALUES (?, ?)
