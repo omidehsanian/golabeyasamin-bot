@@ -384,7 +384,7 @@ export async function handleMessage(env, message) {
     return;
   }
 
-  if (text === KB.ADDRESS_BUTTON) {
+  if (text === KB.ADDRESS_BUTTON || text === KB.OLD_ADDRESS_BUTTON) {
     if (!(await canProceed(env, chatId))) return;
     await showAddressProfile(env, chatId);
     return;

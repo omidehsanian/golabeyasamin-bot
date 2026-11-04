@@ -465,7 +465,7 @@ export async function showDisablePicker(env, chatId) {
   await api.sendMessage(
     env,
     chatId,
-    products.length ? '⏸ <b>غیرفعال کردن کالا</b>\n\nکالا را انتخاب کنید (⏳ پیش‌خرید، 🚫 غیرفعال):' : '🛠 هنوز هیچ محصولی ساخته نشده است.',
+    products.length ? '⏸ <b>فعال / غیرفعال کردن کالا</b>\n\nکالا را انتخاب کنید (⏳ پیش‌خرید، 🚫 غیرفعال):' : '🛠 هنوز هیچ محصولی ساخته نشده است.',
     { inline_keyboard: rows }
   );
 }

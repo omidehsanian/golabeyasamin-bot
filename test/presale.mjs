@@ -15,7 +15,7 @@ import { processBroadcastQueue } from '../flows.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ADMIN = '999';
 const USER = '111';
-const DISABLE = '⏸ غیرفعال کردن کالا';
+const DISABLE = '⏸ فعال / غیرفعال کردن کالا';
 
 const calls = [];
 let nextId = 1;

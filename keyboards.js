@@ -7,9 +7,11 @@ export const INVITE_BUTTON = '👥 دعوت از دوستان';
 export const SUPPORT_BUTTON = '📞 ارتباط با ادمین';
 export const CUSTOM_BOT_BUTTON = '🤖 ساخت ربات';
 export const CART_BUTTON = '🛒 سبد خرید';
-export const ADDRESS_BUTTON = '📍 مشخصات آدرس';
+export const ADDRESS_BUTTON = '📍 آدرس';
+// متن قبلی همین دکمه؛ کیبورد کاربران تا پیام منوی بعدی عوض نمی‌شود
+export const OLD_ADDRESS_BUTTON = '📍 مشخصات آدرس';
 export const ADMIN_DISCOUNTS_BUTTON = '🎟 کدهای تخفیف';
-export const DISABLE_PRODUCT_BUTTON = '⏸ غیرفعال کردن کالا';
+export const DISABLE_PRODUCT_BUTTON = '⏸ فعال / غیرفعال کردن کالا';
 // دکمه‌ی روشن/خاموش سبد خرید برای ادمین‌ها (متن وضعیت بعد از این پیشوند می‌آید)
 export const CART_TOGGLE_PREFIX = '⚙️ سبد خرید';
 
@@ -25,6 +27,7 @@ export const RESERVED_BUTTONS = [
   CUSTOM_BOT_BUTTON,
   CART_BUTTON,
   ADDRESS_BUTTON,
+  OLD_ADDRESS_BUTTON,
   ADMIN_DISCOUNTS_BUTTON,
   DISABLE_PRODUCT_BUTTON,
   '🔙 انصراف',
@@ -59,9 +62,13 @@ export function mainMenuKeyboard(products = [], opts = {}) {
   const keyboard = productRows(products, columns, featuredFirst).map((row) =>
     row.map((p) => (p.buttonStyle ? { text: p.buttonText, style: p.buttonStyle } : { text: p.buttonText }))
   );
-  keyboard.push(cart ? [{ text: CART_BUTTON }, { text: ADDRESS_BUTTON }] : [{ text: ADDRESS_BUTTON }]);
-  keyboard.push([{ text: WALLET_BUTTON }, { text: INVITE_BUTTON }]);
-  keyboard.push(customBot ? [{ text: SUPPORT_BUTTON }, { text: CUSTOM_BOT_BUTTON }] : [{ text: SUPPORT_BUTTON }]);
+  // دکمه‌های ثابت جای خالی ردیف آخر محصولات را پر می‌کنند و با همان تعداد ستون ادامه می‌یابند
+  const fixed = [ADDRESS_BUTTON, ...(cart ? [CART_BUTTON] : []), WALLET_BUTTON, INVITE_BUTTON, SUPPORT_BUTTON, ...(customBot ? [CUSTOM_BOT_BUTTON] : [])]
+    .map((text) => ({ text }));
+  // ردیف محصول ویژه همیشه تک‌دکمه می‌ماند
+  const lastRow = products.length > (featuredFirst ? 1 : 0) ? keyboard.at(-1) : null;
+  if (lastRow) lastRow.push(...fixed.splice(0, Math.max(0, columns - lastRow.length)));
+  for (let i = 0; i < fixed.length; i += columns) keyboard.push(fixed.slice(i, i + columns));
 
   if (superAdmin) {
     keyboard.push([{ text: ADMIN_ORDERS_BUTTON }, { text: BROADCAST_BUTTON }]);

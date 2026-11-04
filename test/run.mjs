@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { makeD1 } from './d1_mock.mjs';
 import * as db from '../db.js';
 import { addProduct, deleteProduct, findProductIdByButton, listProducts, moveProduct } from '../products.js';
+import { mainMenuKeyboard } from '../keyboards.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -64,6 +65,24 @@ async function main() {
   assert.equal(await findProductIdByButton(env, 'B'), (await listProducts(env))[1].id);
   for (const p of await listProducts(env)) await deleteProduct(env, p.id);
   console.log('✅ product positions (insert / move / delete) OK');
+
+  // --- چیدمان منو: دکمه‌های ثابت ردیف آخر محصولات را پر می‌کنند ---
+  const items = (...names) => names.map((buttonText) => ({ buttonText }));
+  const layout = (products, opts) => mainMenuKeyboard(products, { columns: 3, ...opts }).keyboard.map((row) => row.map((b) => b.text));
+  assert.deepEqual(layout(items('F', 'a', 'b', 'c', 'd', 'e'), { featuredFirst: true }), [
+    ['F'],
+    ['a', 'b', 'c'],
+    ['d', 'e', '📍 آدرس'],
+    ['🛒 سبد خرید', '💼 موجودی کیف پول', '👥 دعوت از دوستان'],
+    ['📞 ارتباط با ادمین'],
+  ], 'fills the last product row');
+  assert.deepEqual(layout(items('a', 'b', 'c'), { cart: false }), [
+    ['a', 'b', 'c'],
+    ['📍 آدرس', '💼 موجودی کیف پول', '👥 دعوت از دوستان'],
+    ['📞 ارتباط با ادمین'],
+  ], 'full product row stays as is');
+  assert.deepEqual(layout(items('F'), { featuredFirst: true, cart: false })[0], ['F'], 'featured row stays alone');
+  console.log('✅ menu layout OK');
 
   // --- orders + confirm (wallet deduction, no double-deduct) ---
   const orderId = await db.saveOrder(env, '111', 'chatgpt', 'ChatGPT Plus', {

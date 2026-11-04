@@ -401,7 +401,7 @@ test('تایید سفارش بدون آدرس: دوباره درخواست آد�
 test('دکمه‌ی مشخصات آدرس: ثبت، نمایش و ویرایش', async () => {
   const env = freshEnv();
   await shop(env);
-  await say(env, { text: '📍 مشخصات آدرس' });
+  await say(env, { text: '📍 آدرس' });
   assert.deepEqual(buttonsOf(lastMessage('111')), ['addr:edit']);
   await click(env, 'addr:edit');
   await say(env, { text: ADDRESS });
