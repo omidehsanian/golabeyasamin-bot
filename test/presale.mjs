@@ -144,6 +144,7 @@ async function main() {
     await handleMessage(env, msg(USER, '⏳ محصول 1'));
     let page = last(USER);
     assert.ok(page.text.includes('<s>۱۰۰٬۰۰۰</s>') && page.text.includes('۸۰٬۰۰۰'), 'shows both prices');
+    assert.ok(page.text.includes('ارگانیک') && page.text.includes('۶ ماه'), 'shows the quality note');
     assert.ok(callbacks(page).includes('qty:1:1') && !callbacks(page).includes('buy:1'), 'direct buy, not cart');
 
     await handleMessage(env, msg(USER, '🚫 محصول 2'));
