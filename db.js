@@ -286,13 +286,13 @@ export async function getAllChatIds(env) {
 // ==========================================
 
 export async function saveOrder(env, chatId, productId, productTitle, opts = {}) {
-  const { osType = '', amount = 0, walletUsed = 0, status = 'pending', note = '' } = opts;
+  const { osType = '', amount = 0, walletUsed = 0, status = 'pending', note = '', presalePrice = 0 } = opts;
 
   const result = await env.DB.prepare(
-    `INSERT INTO orders (user_id, product_id, product_title, os_type, amount, wallet_used, status, note)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO orders (user_id, product_id, product_title, os_type, amount, wallet_used, status, note, presale_price)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(String(chatId), productId, productTitle, osType, amount, walletUsed, status, note)
+    .bind(String(chatId), productId, productTitle, osType, amount, walletUsed, status, note, presalePrice)
     .run();
 
   return result.meta.last_row_id;
@@ -506,7 +506,7 @@ const NO_LEDGER_SQL = 'NOT EXISTS (SELECT 1 FROM wallet_transactions t WHERE t.o
 // صدور/تازه‌سازی پیش‌فاکتور. هر کاربر حداکثر یک سفارش pending دارد (ایندکس یکتای جزئی):
 // - پیش‌فاکتور دوباره برای همان محصول، همان سفارش را با مبلغ جدید به‌روز می‌کند (زمان شروع حفظ می‌شود)
 // - پیش‌فاکتور برای محصول دیگر، سفارش قبلی را با دلیل superseded لغو می‌کند (بدون پیام، بدون پول)
-export async function upsertPendingOrder(env, { chatId, productId, productTitle, osType = '', discountPercent = 0, amount, walletUsed, now = new Date() }) {
+export async function upsertPendingOrder(env, { chatId, productId, productTitle, osType = '', discountPercent = 0, amount, walletUsed, presalePrice = 0, now = new Date() }) {
   const id = assertChatId(chatId);
   const nowSql = sqlTime(now);
   const expiredBefore = minutesBefore(now, PENDING_EXPIRE_MINUTES);
@@ -516,13 +516,13 @@ export async function upsertPendingOrder(env, { chatId, productId, productTitle,
        WHERE user_id = ? AND status = 'pending' AND (product_id <> ? OR os_type <> ? OR created_at <= ?) AND ${NO_LEDGER_SQL}`
     ).bind(nowSql, id, productId, osType, expiredBefore),
     env.DB.prepare(
-      `INSERT OR IGNORE INTO orders (user_id, product_id, product_title, os_type, amount, wallet_used, status, discount_percent, checkout_step, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 'invoice', ?)`
-    ).bind(id, productId, productTitle, osType, amount, walletUsed, discountPercent, nowSql),
+      `INSERT OR IGNORE INTO orders (user_id, product_id, product_title, os_type, amount, wallet_used, status, discount_percent, checkout_step, created_at, presale_price)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 'invoice', ?, ?)`
+    ).bind(id, productId, productTitle, osType, amount, walletUsed, discountPercent, nowSql, presalePrice),
     env.DB.prepare(
-      `UPDATE orders SET amount = ?, wallet_used = ?, discount_percent = ?, product_title = ?, checkout_step = 'invoice'
+      `UPDATE orders SET amount = ?, wallet_used = ?, discount_percent = ?, product_title = ?, presale_price = ?, checkout_step = 'invoice'
        WHERE user_id = ? AND status = 'pending' AND product_id = ? AND os_type = ?`
-    ).bind(amount, walletUsed, discountPercent, productTitle, id, productId, osType),
+    ).bind(amount, walletUsed, discountPercent, productTitle, presalePrice, id, productId, osType),
   ]);
   return env.DB.prepare("SELECT * FROM orders WHERE user_id = ? AND status = 'pending'").bind(id).first();
 }
@@ -613,6 +613,23 @@ export async function payPendingOrderWithWallet(env, orderId, chatId, price) {
 // ==========================================
 
 const LIVE_ORDER_STATUSES_SQL = "'receipt_sent', 'confirmed', 'paid_by_wallet'";
+
+// خریداران پیش‌خرید این کالا که هنوز پیام «موجود شد» نگرفته‌اند
+const PRESALE_WAITING_SQL = `product_id = ? AND presale_price > 0 AND presale_notified_at IS NULL AND status IN (${LIVE_ORDER_STATUSES_SQL})`;
+
+export async function getPresaleBuyers(env, productId) {
+  const { results } = await env.DB.prepare(`SELECT DISTINCT user_id FROM orders WHERE ${PRESALE_WAITING_SQL}`)
+    .bind(String(productId))
+    .all();
+  return (results || []).map((r) => String(r.user_id));
+}
+
+export async function markPresaleNotified(env, productId, now = new Date()) {
+  await env.DB.prepare(`UPDATE orders SET presale_notified_at = ? WHERE ${PRESALE_WAITING_SQL}`)
+    .bind(sqlTime(now), String(productId))
+    .run();
+}
+
 // «منتظر آدرس»: پرداخت انجام شده ولی پروفایل کامل نشده (پنل ادمین هم از همین شرط استفاده می‌کند)
 export const AWAITING_ADDRESS_SQL = `o.address_requested_at IS NOT NULL AND o.address_done_at IS NULL AND o.status IN (${LIVE_ORDER_STATUSES_SQL})`;
 const WALLET_ADDRESS_EDIT_MINUTES = 24 * 60;

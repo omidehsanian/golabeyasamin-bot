@@ -6,7 +6,7 @@
 
 import * as db from './db.js';
 import { cartConfigEnabled } from './config.js';
-import { getFullProduct, MAX_QUANTITY } from './products.js';
+import { getFullProduct, isPresale, isPurchasable, MAX_QUANTITY } from './products.js';
 
 export const CART_PRODUCT_ID = 'cart';
 
@@ -25,12 +25,12 @@ export async function setCartActive(env, on) {
 
 const validId = (productId) => /^\d+$/.test(String(productId ?? ''));
 
-// محصول حذف‌شده، پنهان یا بدون قیمت در سبد نمی‌ماند
+// محصول حذف‌شده، پنهان، غیرفعال یا بدون قیمت در سبد نمی‌ماند (پیش‌خرید هم فقط خرید مستقیم دارد)
 export async function getCart(env, chatId) {
   const { results } = await env.DB.prepare(
     `SELECT c.product_id, c.quantity, p.title, p.price
      FROM cart_items c JOIN products p ON p.id = c.product_id
-     WHERE c.chat_id = ? AND p.price > 0 AND p.hidden = 0
+     WHERE c.chat_id = ? AND p.price > 0 AND p.hidden = 0 AND p.disabled = 0
      ORDER BY p.position, p.id`
   ).bind(String(chatId)).all();
   return (results || []).map((r) => ({
@@ -52,7 +52,7 @@ export async function cartQuantity(env, chatId, productId) {
 // تعداد را تغییر می‌دهد و مقدار نهایی را برمی‌گرداند (null: محصول قابل خرید نیست)؛ تعداد صفر یعنی حذف از سبد
 export async function changeCartQuantity(env, chatId, productId, delta) {
   const product = await getFullProduct(env, productId);
-  if (!product || product.price <= 0 || product.hidden) return null;
+  if (!product || product.price <= 0 || product.hidden || product.disabled) return null;
   const current = await cartQuantity(env, chatId, productId);
   const quantity = Math.min(Math.max(0, current + delta), MAX_QUANTITY);
   if (quantity === 0) {
@@ -123,8 +123,16 @@ export function applyDiscountScope(items, scope = null) {
   return items.map((i) => ({ ...i, discounted: !scope || scope === i.productId }));
 }
 
+// محصول با نوع فروشی که روی پیش‌فاکتور آمده؛ مشتری با تغییر وضعیت کالا مبلغی غیر از فاکتورش پرداخت نمی‌کند.
+// closed: وضعیت کالا با فاکتور نمی‌خواند؛ رسید پذیرفته می‌شود ولی کیف پول و «ادامه خرید» بسته است
 export async function getOrderProduct(env, order) {
-  if (order?.product_id !== CART_PRODUCT_ID) return getFullProduct(env, order?.product_id);
+  if (order?.product_id !== CART_PRODUCT_ID) {
+    const product = await getFullProduct(env, order?.product_id);
+    if (!product) return null;
+    const presalePrice = Number(order.presale_price) || 0;
+    const closed = !isPurchasable(product) || isPresale(product) !== presalePrice > 0;
+    return { ...product, disabled: presalePrice > 0, presalePrice, closed };
+  }
   const items = await getOrderItems(env, order.id);
   return items.length ? cartAsProduct(items) : null;
 }

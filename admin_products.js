@@ -6,6 +6,8 @@
 // سشن‌ها:
 //   prod_new   { step, title, description, photoFileId, price, position }
 //   prod_edit  { productId, field }
+//   prod_presale { productId }
+//   prod_notice  { productId, kind, text, step }
 //
 // callback_data:
 //   pa_new            شروع ساخت محصول
@@ -13,6 +15,11 @@
 //   pa:<id>           صفحه‌ی مدیریت یک محصول
 //   pe:<id>:<field>   ویرایش یک بخش (title | description | photo | price | position | old_price)
 //   ph:<id>           پنهان / نمایش در منو
+//   ds_list           لیست انتخاب کالا برای غیرفعال کردن
+//   ds:<id>           سوال پیش‌خرید برای یک کالا
+//   dsy:<id>          بله: گرفتن قیمت پیش‌خرید      dsn:<id>  خیر: غیرفعال بدون پیش‌خرید
+//   dse:<id>          فعال کردن دوباره
+//   nt:<id>:<act>     پیام تغییر وضعیت: b ارسال به خریداران پیش‌خرید | a ارسال به همه | e ویرایش متن | x ارسال نشود
 //   pd:<id>           سوال حذف      pdok:<id>  حذف قطعی
 //   pnew_ok           ثبت محصول جدید (اطلاعات از سشن خوانده می‌شود)
 //   pnew_no           انصراف از ساخت
@@ -20,8 +27,8 @@
 import * as api from './api.js';
 import * as db from './db.js';
 import { CART_TOGGLE_PREFIX, cancelKeyboard, productRows, RESERVED_BUTTONS } from './keyboards.js';
-import { money, productColumns, productFeaturedFirst } from './config.js';
-import { menuKeyboardFor } from './flows.js';
+import { isSuperAdmin, money, productColumns, productFeaturedFirst } from './config.js';
+import { broadcastText, menuKeyboardFor } from './flows.js';
 import {
   MAX_DESCRIPTION_LENGTH,
   MAX_TITLE_LENGTH,
@@ -31,6 +38,8 @@ import {
   deleteProduct,
   escapeHtml,
   getFullProduct,
+  hasButtonMark,
+  isPresale,
   listProducts,
   moveProduct,
   titleTaken,
@@ -39,7 +48,9 @@ import {
 
 export const NEW_PRODUCT_STATE = 'prod_new';
 export const EDIT_PRODUCT_STATE = 'prod_edit';
-export const PRODUCT_SESSION_STATES = [NEW_PRODUCT_STATE, EDIT_PRODUCT_STATE];
+export const PRESALE_PRICE_STATE = 'prod_presale';
+export const NOTICE_STATE = 'prod_notice';
+export const PRODUCT_SESSION_STATES = [NEW_PRODUCT_STATE, EDIT_PRODUCT_STATE, PRESALE_PRICE_STATE, NOTICE_STATE];
 
 const MAX_PRICE = 1_000_000_000;
 
@@ -74,6 +85,7 @@ async function validateTitle(env, text, exceptId = null) {
   if (title.includes('\n')) return { error: '⚠️ نام محصول باید یک خط باشد.' };
   if (title.length > MAX_TITLE_LENGTH) return { error: `⚠️ نام محصول حداکثر ${MAX_TITLE_LENGTH} کاراکتر باشد (الان ${title.length}).` };
   if (title.startsWith('/')) return { error: '⚠️ نام محصول نباید با / شروع شود.' };
+  if (hasButtonMark(title)) return { error: '⚠️ نام محصول نباید با ⏳ یا 🚫 شروع شود؛ این علامت‌ها مخصوص کالای غیرفعال‌اند.' };
   if (RESERVED_BUTTONS.includes(title) || title.startsWith(CART_TOGGLE_PREFIX)) return { error: '⚠️ این نام متعلق به یکی از دکمه‌های ثابت منوست؛ نام دیگری انتخاب کنید.' };
   if (await titleTaken(env, title, exceptId)) return { error: '⚠️ محصولی با همین نام وجود دارد؛ نام دیگری انتخاب کنید.' };
   return { value: title };
@@ -108,6 +120,13 @@ function validateOldPrice(text, price) {
     return { error: `⚠️ قیمت خط‌خورده باید از قیمت فروش (${money(price)} تومان) بیشتر باشد. عدد <code>0</code> یعنی بدون تخفیف ویژه.` };
   }
   return { value: oldPrice };
+}
+
+function validatePresalePrice(text, price) {
+  const presalePrice = parsePriceInput(text);
+  if (presalePrice === null || presalePrice <= 0) return { error: '⚠️ قیمت پیش‌خرید را فقط به‌صورت عدد و به تومان بفرستید (مثلاً <code>200000</code>).' };
+  if (price > 0 && presalePrice >= price) return { error: `⚠️ قیمت پیش‌خرید باید از قیمت عادی (${money(price)} تومان) کمتر باشد.` };
+  return { value: presalePrice };
 }
 
 function validatePosition(text, max) {
@@ -281,8 +300,12 @@ async function handleEditStep(env, chatId, session, message) {
   if (field === 'title') r = await validateTitle(env, text, product.id);
   else if (field === 'description') r = validateDescription(text);
   else if (field === 'photo') r = validatePhoto(message);
-  else if (field === 'price') r = validatePrice(text);
-  else if (field === 'old_price') r = validateOldPrice(text, product.price);
+  else if (field === 'price') {
+    r = validatePrice(text);
+    if (!r.error && product.presalePrice > 0 && r.value <= product.presalePrice) {
+      r = { error: `⚠️ قیمت عادی باید از قیمت پیش‌خرید (${money(product.presalePrice)} تومان) بیشتر باشد.` };
+    }
+  } else if (field === 'old_price') r = validateOldPrice(text, product.price);
   else r = validatePosition(text, await countProducts(env));
   if (r.error) {
     await api.sendMessage(env, chatId, r.error);
@@ -302,7 +325,188 @@ async function handleEditStep(env, chatId, session, message) {
 // پیام ادمین وقتی در یکی از سشن‌های محصول است
 export async function handleProductSessionMessage(env, chatId, session, message) {
   if (session.state === NEW_PRODUCT_STATE) return handleNewProductStep(env, chatId, session, message);
+  if (session.state === PRESALE_PRICE_STATE) return handlePresalePriceStep(env, chatId, session, message);
+  if (session.state === NOTICE_STATE) return handleNoticeStep(env, chatId, session, message);
   return handleEditStep(env, chatId, session, message);
+}
+
+// ----------------------------------------------------
+// پیام تغییر وضعیت کالا: متن پیش‌فرض ← ارسال، ویرایش یا انصراف (بدون تایید ادمین چیزی ارسال نمی‌شود)
+// ----------------------------------------------------
+
+// متن پیام قبل از ارسال escape می‌شود و قالب‌بندی HTML ندارد
+const MAX_NOTICE_HTML_LENGTH = 3500;
+
+function defaultNoticeText(product, kind) {
+  if (kind === 'on') {
+    return `🎉 خبر خوب! «${product.title}» دوباره موجود شد 🌸\n\n` +
+      '🛍 می‌توانید از منوی ربات سفارش بدهید.\n' +
+      '📦 اگر پیش‌خرید کرده‌اید، سفارش شما به‌زودی تحویل یا ارسال می‌شود.';
+  }
+  if (kind === 'presale') {
+    const regular = product.price > 0 ? `💰 قیمت عادی: ${money(product.price)} تومان\n` : '';
+    return `⏳ پیش‌خرید «${product.title}» شروع شد! 🌸\n\n` +
+      '📦 این محصول فعلاً موجود نیست، ولی می‌توانید همین حالا با قیمت پیش‌خرید سفارش بدهید:\n\n' +
+      `${regular}🔥 قیمت پیش‌خرید: ${money(product.presalePrice)} تومان\n\n` +
+      '🛍 برای ثبت سفارش، این محصول را از منوی ربات انتخاب کنید.';
+  }
+  return `🚫 «${product.title}» فعلاً موجود نیست.\n\n🌸 از همراهی شما سپاسگزاریم.`;
+}
+
+async function sendNoticePreview(env, chatId, productId, text) {
+  const buyers = await db.getPresaleBuyers(env, productId);
+  const rows = [];
+  if (buyers.length) rows.push([{ text: `📤 ارسال به خریداران پیش‌خرید (${buyers.length.toLocaleString('fa-IR')} نفر)`, callback_data: `nt:${productId}:b` }]);
+  // پیام به همه مثل «ارسال پیام همگانی» فقط برای سوپرادمین است
+  if (isSuperAdmin(env, chatId)) rows.push([{ text: '📢 ارسال به همه‌ی کاربران', callback_data: `nt:${productId}:a` }]);
+  rows.push([{ text: '✏️ ویرایش متن', callback_data: `nt:${productId}:e` }]);
+  rows.push([{ text: '❌ ارسال نشود', callback_data: `nt:${productId}:x` }]);
+  await api.sendMessage(
+    env,
+    chatId,
+    `📢 <b>به کاربران اطلاع داده شود؟</b>\n\nمتن پیام:\n<blockquote>${escapeHtml(text)}</blockquote>\n\nاگر متن مناسب است یکی از گزینه‌های ارسال را بزنید.`,
+    { inline_keyboard: rows }
+  );
+}
+
+// کالای پنهان در منو نیست و اطلاع‌رسانی درباره‌اش معنا ندارد
+async function offerNotice(env, chatId, product, kind) {
+  if (product.hidden) return;
+  const text = defaultNoticeText(product, kind);
+  await db.setSession(env, chatId, NOTICE_STATE, { productId: product.id, kind, text, step: 'choose' });
+  await sendNoticePreview(env, chatId, product.id, text);
+}
+
+async function handleNoticeStep(env, chatId, session, message) {
+  const data = session.data || {};
+  if (data.step !== 'edit') {
+    await api.sendMessage(env, chatId, '👆 یکی از دکمه‌های زیر متن پیام را بزنید، یا «❌ ارسال نشود».');
+    return;
+  }
+  const text = String(message.text || '').trim();
+  if (!text) {
+    await api.sendMessage(env, chatId, '⚠️ متن پیام را به‌صورت نوشته بفرستید.');
+    return;
+  }
+  if (escapeHtml(text).length > MAX_NOTICE_HTML_LENGTH) {
+    await api.sendMessage(env, chatId, '⚠️ متن پیام خیلی طولانی است؛ کوتاه‌تر بفرستید.');
+    return;
+  }
+  await db.setSession(env, chatId, NOTICE_STATE, { ...data, text, step: 'choose' });
+  await sendNoticePreview(env, chatId, data.productId, text);
+}
+
+async function handleNoticeCallback(env, chatId, actorId, product, act, callbackId, clearButtons) {
+  const session = await db.getSession(env, chatId);
+  const draft = session.state === NOTICE_STATE && session.data?.productId === product.id ? session.data : null;
+  if (!draft || draft.step !== 'choose') {
+    await api.answerCallbackQuery(env, callbackId, { text: '⚠️ این پیش‌نمایش منقضی شده است.', show_alert: true });
+    await clearButtons();
+    return;
+  }
+
+  if (act === 'x') {
+    await db.clearSession(env, chatId);
+    await api.answerCallbackQuery(env, callbackId, { text: 'ارسال نشد' });
+    await clearButtons();
+    await api.sendMessage(env, chatId, '❌ پیامی برای کاربران ارسال نشد.', await menuKeyboardFor(env, chatId));
+    return;
+  }
+
+  if (act === 'e') {
+    await db.setSession(env, chatId, NOTICE_STATE, { ...draft, step: 'edit' });
+    await api.answerCallbackQuery(env, callbackId);
+    await clearButtons();
+    await api.sendMessage(env, chatId, `✏️ متن جدید پیام را بفرستید. متن فعلی برای کپی:\n\n<code>${escapeHtml(draft.text)}</code>`, cancelKeyboard());
+    return;
+  }
+
+  if (act !== 'b' && act !== 'a') {
+    await api.answerCallbackQuery(env, callbackId, { text: '⚠️ دکمه نامعتبر است.', show_alert: true });
+    return;
+  }
+  if (act === 'a' && !isSuperAdmin(env, actorId)) {
+    await api.answerCallbackQuery(env, callbackId, { text: '⛔ ارسال به همه‌ی کاربران فقط برای مدیر اصلی است.', show_alert: true });
+    return;
+  }
+
+  const recipients = act === 'a' ? await db.getAllChatIds(env) : await db.getPresaleBuyers(env, product.id);
+  const result = await broadcastText(env, chatId, recipients, draft.text);
+  if (!result.ok) {
+    // پیش‌نویس می‌ماند تا بعد از پایان ارسال قبلی دوباره زده شود
+    const reason = result.reason === 'running' ? '⚠️ پیام همگانی قبلی هنوز تمام نشده است؛ کمی بعد دوباره بزنید.' : '⚠️ گیرنده‌ای پیدا نشد.';
+    await api.answerCallbackQuery(env, callbackId, { text: reason, show_alert: true });
+    return;
+  }
+  if (draft.kind === 'on') await db.markPresaleNotified(env, product.id);
+  await db.clearSession(env, chatId);
+  await api.answerCallbackQuery(env, callbackId, { text: '📢 در صف ارسال قرار گرفت' });
+  await clearButtons();
+  await api.sendMessage(
+    env,
+    chatId,
+    `📢 پیام برای ${result.total.toLocaleString('fa-IR')} نفر در صف ارسال قرار گرفت. بعد از پایان ارسال، نتیجه برایتان فرستاده می‌شود.`,
+    await menuKeyboardFor(env, chatId)
+  );
+}
+
+// ----------------------------------------------------
+// غیرفعال کردن کالا: انتخاب کالا ← سوال پیش‌خرید ← قیمت پیش‌خرید یا غیرفعال کامل
+// ----------------------------------------------------
+
+function statusLabel(product) {
+  if (isPresale(product)) return `⏳ پیش‌خرید با قیمت ${money(product.presalePrice)} تومان`;
+  return product.disabled ? '🚫 غیرفعال' : '✅ فعال';
+}
+
+export async function showDisablePicker(env, chatId) {
+  const products = await listProducts(env);
+  const rows = products.map((p) => [{ text: `${p.buttonText}${isPresale(p) ? ` — ${money(p.presalePrice)}` : ''}`, callback_data: `ds:${p.id}` }]);
+  await api.sendMessage(
+    env,
+    chatId,
+    products.length ? '⏸ <b>غیرفعال کردن کالا</b>\n\nکالا را انتخاب کنید (⏳ پیش‌خرید، 🚫 غیرفعال):' : '🛠 هنوز هیچ محصولی ساخته نشده است.',
+    { inline_keyboard: rows }
+  );
+}
+
+async function askDisableChoice(env, chatId, product) {
+  const rows = [
+    [{ text: isPresale(product) ? '💰 تغییر قیمت پیش‌خرید' : '✅ بله، قیمت پیش‌خرید می‌گذارم', callback_data: `dsy:${product.id}` }],
+    [{ text: isPresale(product) ? '🚫 لغو پیش‌خرید و غیرفعال ماندن' : '🚫 خیر، غیرفعال شود', callback_data: `dsn:${product.id}` }],
+  ];
+  if (product.disabled) rows.push([{ text: '🟢 فعال کردن دوباره', callback_data: `dse:${product.id}` }]);
+  rows.push([{ text: '🔙 لیست کالاها', callback_data: 'ds_list' }]);
+  await api.sendMessage(
+    env,
+    chatId,
+    `⏸ <b>${escapeHtml(product.title)}</b>\nوضعیت: ${statusLabel(product)}\n💰 قیمت عادی: ${money(product.price)} تومان\n\nآیا مایل به ارائه‌ی قیمت پیش‌خرید هستید؟`,
+    { inline_keyboard: rows }
+  );
+}
+
+async function handlePresalePriceStep(env, chatId, session, message) {
+  const product = await getFullProduct(env, session.data?.productId);
+  if (!product) {
+    await db.clearSession(env, chatId);
+    await api.sendMessage(env, chatId, '⚠️ محصول پیدا نشد؛ ممکن است حذف شده باشد.', await menuKeyboardFor(env, chatId));
+    return;
+  }
+  const r = validatePresalePrice(message.text, product.price);
+  if (r.error) {
+    await api.sendMessage(env, chatId, r.error);
+    return;
+  }
+  await updateProduct(env, product.id, { disabled: 1, presalePrice: r.value });
+  await db.clearSession(env, chatId);
+  await api.sendMessage(
+    env,
+    chatId,
+    `⏳ «${escapeHtml(product.title)}» با قیمت پیش‌خرید <b>${money(r.value)} تومان</b> ثبت شد.`,
+    await menuKeyboardFor(env, chatId)
+  );
+  await showProductAdmin(env, chatId, product.id);
+  await offerNotice(env, chatId, { ...product, presalePrice: r.value }, 'presale');
 }
 
 // ----------------------------------------------------
@@ -312,14 +516,14 @@ export async function handleProductSessionMessage(env, chatId, session, message)
 export async function showProductsAdmin(env, chatId) {
   const products = await listProducts(env);
   const rows = products.map((p) => [
-    { text: `${p.hidden ? '🚫 ' : ''}${p.position}. ${p.title} — ${p.price > 0 ? money(p.price) : 'بدون قیمت'}`, callback_data: `pa:${p.id}` },
+    { text: `${p.hidden ? '🙈 ' : ''}${p.position}. ${p.buttonText} — ${p.price > 0 ? money(p.price) : 'بدون قیمت'}`, callback_data: `pa:${p.id}` },
   ]);
   rows.push([{ text: '➕ ساخت محصول جدید', callback_data: 'pa_new' }]);
   await api.sendMessage(
     env,
     chatId,
     products.length
-      ? '🛠 <b>مدیریت محصولات</b>\n\nمحصولات به ترتیب جایگاه دکمه‌ها (قیمت به تومان؛ 🚫 = پنهان از منو). برای ویرایش، جابجایی یا حذف روی محصول بزنید:'
+      ? '🛠 <b>مدیریت محصولات</b>\n\nمحصولات به ترتیب جایگاه دکمه‌ها (قیمت به تومان؛ 🙈 = پنهان از منو، ⏳ = پیش‌خرید، 🚫 = غیرفعال). برای ویرایش، جابجایی یا حذف روی محصول بزنید:'
       : '🛠 هنوز هیچ محصولی ساخته نشده است.',
     { inline_keyboard: rows }
   );
@@ -352,6 +556,7 @@ export async function showProductAdmin(env, chatId, productId) {
         { text: '🔢 جابجایی', callback_data: `pe:${product.id}:position` },
         { text: '🗑 حذف', callback_data: `pd:${product.id}` },
       ],
+      [{ text: product.disabled ? '⏸ وضعیت موجودی / پیش‌خرید' : '⏸ غیرفعال کردن', callback_data: `ds:${product.id}` }],
       [{ text: '🔙 لیست محصولات', callback_data: 'pa_list' }],
     ],
   };
@@ -364,10 +569,10 @@ export async function showProductAdmin(env, chatId, productId) {
 // ----------------------------------------------------
 
 export function isProductCallback(data) {
-  return data === 'pa_new' || data === 'pa_list' || data === 'pnew_ok' || data === 'pnew_no' || /^(pa|pe|ph|pd|pdok):/.test(data);
+  return data === 'pa_new' || data === 'pa_list' || data === 'ds_list' || data === 'pnew_ok' || data === 'pnew_no' || /^(pa|pe|ph|pd|pdok|ds|dsy|dsn|dse|nt):/.test(data);
 }
 
-export async function handleProductCallback(env, chatId, data, callbackId, messageId) {
+export async function handleProductCallback(env, chatId, data, callbackId, messageId, actorId = chatId) {
   if (!isProductCallback(data)) return false;
   const clearButtons = () =>
     messageId ? api.editMessageReplyMarkup(env, chatId, messageId, { inline_keyboard: [] }).catch(() => {}) : null;
@@ -381,6 +586,13 @@ export async function handleProductCallback(env, chatId, data, callbackId, messa
   if (data === 'pa_list') {
     await api.answerCallbackQuery(env, callbackId);
     await showProductsAdmin(env, chatId);
+    return true;
+  }
+
+  if (data === 'ds_list') {
+    await api.answerCallbackQuery(env, callbackId);
+    await db.clearSession(env, chatId);
+    await showDisablePicker(env, chatId);
     return true;
   }
 
@@ -453,6 +665,49 @@ export async function handleProductCallback(env, chatId, data, callbackId, messa
     await clearButtons();
     await api.sendMessage(env, chatId, '✅ وضعیت نمایش محصول تغییر کرد.', await menuKeyboardFor(env, chatId));
     await showProductAdmin(env, chatId, product.id);
+    return true;
+  }
+
+  if (action === 'ds') {
+    await api.answerCallbackQuery(env, callbackId);
+    await askDisableChoice(env, chatId, product);
+    return true;
+  }
+
+  if (action === 'dsy') {
+    await api.answerCallbackQuery(env, callbackId);
+    await clearButtons();
+    await db.setSession(env, chatId, PRESALE_PRICE_STATE, { productId: product.id });
+    await api.sendMessage(
+      env,
+      chatId,
+      `⏳ قیمت پیش‌خرید «${escapeHtml(product.title)}» را به تومان بفرستید (قیمت عادی: ${money(product.price)} تومان):`,
+      cancelKeyboard()
+    );
+    return true;
+  }
+
+  if (action === 'nt') {
+    await handleNoticeCallback(env, chatId, actorId, product, field, callbackId, clearButtons);
+    return true;
+  }
+
+  if (action === 'dsn' || action === 'dse') {
+    const enable = action === 'dse';
+    // دکمه‌ی تکراری وضعیت را عوض نمی‌کند و نباید پیشنهاد اطلاع‌رسانی بدهد
+    const changed = enable ? product.disabled : !product.disabled || isPresale(product);
+    await updateProduct(env, product.id, { disabled: enable ? 0 : 1, presalePrice: 0 });
+    await api.answerCallbackQuery(env, callbackId, { text: enable ? '🟢 فعال شد' : '🚫 غیرفعال شد' });
+    await clearButtons();
+    await db.clearSession(env, chatId);
+    await api.sendMessage(
+      env,
+      chatId,
+      enable ? `🟢 «${escapeHtml(product.title)}» دوباره فعال شد.` : `🚫 «${escapeHtml(product.title)}» غیرفعال شد و قابل خرید نیست.`,
+      await menuKeyboardFor(env, chatId)
+    );
+    await showProductAdmin(env, chatId, product.id);
+    if (changed) await offerNotice(env, chatId, product, enable ? 'on' : 'off');
     return true;
   }
 

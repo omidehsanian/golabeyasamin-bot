@@ -1,7 +1,7 @@
 import * as api from './api.js';
 import * as db from './db.js';
 import * as KB from './keyboards.js';
-import { escapeHtml, getFullProduct, needsAddress, orderPrice, parseVariant, variantCode } from './products.js';
+import { escapeHtml, getFullProduct, isPresale, isPurchasable, needsAddress, orderPrice, orderTitle, parseVariant, unitPrice, variantCode } from './products.js';
 import { CART_PRODUCT_ID, cartQuantity, changeCartQuantity, clearCart, getOrderProduct, isCartActive } from './cart.js';
 import { handleDiscountCallback, isDiscountAdminCallback } from './admin_discounts.js';
 import { cashbackPercent, money, referralCommissionPercent, referralReward, isAdmin, isSuperAdmin } from './config.js';
@@ -53,7 +53,7 @@ export async function handleCallback(env, callbackQuery) {
       await api.answerCallbackQuery(env, callbackId, { text: '⛔ دسترسی ندارید.', show_alert: true });
       return;
     }
-    await handleProductCallback(env, chatId, data, callbackId, messageId);
+    await handleProductCallback(env, chatId, data, callbackId, messageId, actorId);
     return;
   }
 
@@ -138,10 +138,10 @@ export async function handleCallback(env, callbackQuery) {
   if (data.startsWith('buy:') || data.startsWith('pq:')) {
     const parts = data.split(':');
     const productId = parts[parts.length - 1];
-    // دکمه‌ی پیام قدیمی بعد از خاموش شدن سبد: خرید مستقیم
-    if (!(await isCartActive(env))) {
-      const product = await getFullProduct(env, productId);
-      if (!product || product.hidden || product.price <= 0) {
+    const product = await getFullProduct(env, productId);
+    // دکمه‌ی پیام قدیمی بعد از خاموش شدن سبد یا پیش‌خرید شدن کالا: خرید مستقیم
+    if (isPresale(product) || !(await isCartActive(env))) {
+      if (!isPurchasable(product) || unitPrice(product) <= 0) {
         await api.answerCallbackQuery(env, callbackId, { text: '❌ این محصول دیگر موجود نیست.', show_alert: true });
         return;
       }
@@ -239,8 +239,8 @@ export async function handleCallback(env, callbackQuery) {
   if (data.startsWith('discount_yes:')) {
     const [, productId, osType] = data.split(':');
     await api.answerCallbackQuery(env, callbackId);
-    // دکمه‌ی قدیمی بعد از خاموش شدن سیستم تخفیف: مستقیم به پرداخت
-    if (!(await db.isDiscountActive(env))) {
+    // دکمه‌ی قدیمی بعد از خاموش شدن سیستم تخفیف یا پیش‌خرید شدن کالا: مستقیم به پرداخت
+    if (!(await db.isDiscountActive(env)) || isPresale(await getFullProduct(env, productId))) {
       await showPayment(env, chatId, productId, osType || '', 0);
       return;
     }
@@ -346,7 +346,8 @@ export async function handleCallback(env, callbackQuery) {
 
     const product = await getFullProduct(env, productId);
     if (!product) return;
-    if (product.hidden) {
+    // این دکمه‌ی قدیمی به سفارشی وصل نیست و پیش‌خرید بدون سفارش ثبت نمی‌شود
+    if (!isPurchasable(product) || isPresale(product)) {
       await api.answerCallbackQuery(env, callbackId, { text: '⚠️ این محصول در حال حاضر قابل خرید نیست.', show_alert: true });
       return;
     }
@@ -447,9 +448,11 @@ export async function handleCallback(env, callbackQuery) {
       const product = await getFullProduct(env, order.product_id);
       const productDisplayName = escapeHtml(product ? product.title : (order.product_title || 'محصول'));
       
-      const nextStep = parseVariant(order.os_type).delivery === 'pickup'
-        ? 'و برای تحویل حضوری آماده می‌شود'
-        : 'و به زودی برای شما ارسال می‌شود';
+      const nextStep = Number(order.presale_price) > 0
+        ? 'و بعد از موجود شدن کالا تحویل یا ارسال می‌شود'
+        : parseVariant(order.os_type).delivery === 'pickup'
+          ? 'و برای تحویل حضوری آماده می‌شود'
+          : 'و به زودی برای شما ارسال می‌شود';
       await api.sendMessage(
         env,
         order.user_id,
@@ -524,7 +527,7 @@ async function startReceiptStep(env, chatId, callbackId, order) {
 // پرداخت سفارش pending با کیف پول؛ قیمت و موجودی همین لحظه دوباره بررسی می‌شوند
 async function payOrderFromWallet(env, chatId, callbackId, order) {
   const product = await getOrderProduct(env, order);
-  if (!product || product.hidden) {
+  if (!product || product.hidden || product.closed) {
     await api.answerCallbackQuery(env, callbackId, { text: '⚠️ این محصول در حال حاضر قابل خرید نیست.', show_alert: true });
     return;
   }
@@ -541,7 +544,7 @@ async function payOrderFromWallet(env, chatId, callbackId, order) {
     await api.sendMessage(env, chatId, `✅ مبلغ ${money(paidOrder.amount)} تومان از کیف پول شما کسر شد.\nسفارش <b>${orderNo}</b> ثبت شد.`);
     await notifyAdmin(
       env,
-      `💼 <b>خرید با کیف پول (سفارش #${orderNo})</b>\nمحصول: ${escapeHtml(product.title)}\n${deliveryLines(paidOrder)}مبلغ: ${money(paidOrder.amount)} تومان`
+      `💼 <b>خرید با کیف پول (سفارش #${orderNo})</b>\nمحصول: ${escapeHtml(orderTitle(product))}\n${deliveryLines(paidOrder)}مبلغ: ${money(paidOrder.amount)} تومان`
     );
     await followUpOrderAddress(env, chatId, paidOrder);
   } else if (result.reason === 'duplicate') {

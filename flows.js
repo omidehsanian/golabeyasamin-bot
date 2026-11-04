@@ -4,11 +4,15 @@ import * as KB from './keyboards.js';
 import {
   buildProductCaption,
   getFullProduct,
+  isPresale,
+  isPurchasable,
   listProducts,
   needsAddress,
   orderPrice,
+  orderTitle,
   parseVariant,
   shippingInfoText,
+  unitPrice,
   variantLabel,
 } from './products.js';
 import { CART_PRODUCT_ID, applyDiscountScope, cartAsProduct, cartQuantity, getCart, getOrderProduct, isCartActive, itemsTotal, removeOrderItemsFromCart, replaceOrderItems } from './cart.js';
@@ -86,11 +90,13 @@ export async function showProduct(env, chatId, productId) {
     return;
   }
 
+  const sellable = isPurchasable(product) && unitPrice(product) > 0;
   let text = buildProductCaption(product);
-  if (product.price > 0) text += `\n\n${shippingInfoText(env)}`;
+  if (sellable) text += `\n\n${shippingInfoText(env)}`;
   let keyboard = null;
-  if (product.price > 0) {
-    keyboard = (await isCartActive(env))
+  if (sellable) {
+    // پیش‌خرید وارد سبد نمی‌شود تا با کالای موجود در یک سفارش قاطی نشود
+    keyboard = !isPresale(product) && (await isCartActive(env))
       ? KB.productKeyboard(product, await cartQuantity(env, chatId, productId))
       : KB.directBuyKeyboard(product);
   }
@@ -277,7 +283,8 @@ export async function followUpOrderAddress(env, chatId, order) {
 }
 
 export async function continueCheckout(env, chatId, productId, osType) {
-  if (await db.isDiscountActive(env)) {
+  // قیمت پیش‌خرید خودش تخفیف‌خورده است و کد تخفیف نمی‌گیرد
+  if ((await db.isDiscountActive(env)) && !isPresale(await getFullProduct(env, productId))) {
     await api.sendMessage(env, chatId, '🎟️ آیا کد تخفیف دارید؟', KB.discountPromptKeyboard(productId, osType));
   } else {
     await showPayment(env, chatId, productId, osType, 0);
@@ -320,11 +327,13 @@ export async function showPayment(env, chatId, productId, osType = '', discountP
   }
   const cartItems = isCart ? applyDiscountScope(await getCart(env, chatId), discountScope) : [];
   const product = isCart ? (cartItems.length ? cartAsProduct(cartItems) : null) : await getFullProduct(env, productId);
-  if (!product || product.hidden) {
+  if (!isPurchasable(product)) {
     const text = isCart ? EMPTY_CART_TEXT : '❌ این محصول دیگر موجود نیست.';
     await api.sendMessage(env, chatId, text, await menuKeyboardFor(env, chatId));
     return;
   }
+  // دکمه‌ی کد تخفیفی که قبل از پیش‌خرید شدن کالا فرستاده شده، قیمت پیش‌خرید را کم نمی‌کند
+  if (isPresale(product)) discountPercent = 0;
 
   const b = await priceBreakdown(env, chatId, product, osType, discountPercent);
   if (b.basePrice <= 0) {
@@ -335,11 +344,12 @@ export async function showPayment(env, chatId, productId, osType = '', discountP
   const order = await db.upsertPendingOrder(env, {
     chatId,
     productId,
-    productTitle: product.title,
+    productTitle: orderTitle(product),
     osType,
     discountPercent,
     amount: b.price,
     walletUsed: b.walletUsed,
+    presalePrice: isPresale(product) ? product.presalePrice : 0,
   });
   if (order && isCart) await replaceOrderItems(env, order.id, cartItems);
 
@@ -354,7 +364,7 @@ export async function resumeCheckout(env, chatId, order) {
   const product = await getOrderProduct(env, order);
   const discountPercent = Number(order.discount_percent) || 0;
   const b = product ? await priceBreakdown(env, chatId, product, order.os_type || '', discountPercent) : null;
-  if (!product || product.hidden || b.basePrice <= 0) {
+  if (!product || product.hidden || product.closed || b.basePrice <= 0) {
     await api.sendMessage(env, chatId, '⚠️ این محصول در حال حاضر قابل خرید نیست. لطفاً از منو محصول دیگری انتخاب کنید.', await menuKeyboardFor(env, chatId));
     return;
   }
@@ -387,8 +397,8 @@ function invoiceText(env, product, osType, discountPercent, b) {
     }
     text += `💰 مبلغ کالا: ${money(basePrice)} تومان\n`;
   } else if (delivery) {
-    text += `🛍 محصول: ${escapeHtml(product.title)}\n`;
-    text += `🔢 تعداد: ${quantity.toLocaleString('fa-IR')} × ${money(product.price)} تومان\n`;
+    text += `🛍 محصول: ${escapeHtml(orderTitle(product))}\n`;
+    text += `🔢 تعداد: ${quantity.toLocaleString('fa-IR')} × ${money(unitPrice(product))} تومان\n`;
     text += `💰 مبلغ کالا: ${money(basePrice)} تومان\n`;
   } else {
     text += `🛍 محصول: ${escapeHtml(product.title)}\n💰 قیمت: ${money(basePrice)} تومان\n`;
@@ -417,6 +427,7 @@ function invoiceText(env, product, osType, discountPercent, b) {
   }
 
   text += `💳 مبلغ قابل پرداخت: <b>${money(payable)} تومان</b>\n`;
+  if (isPresale(product)) text += '⏳ این سفارش پیش‌خرید است و بعد از موجود شدن کالا تحویل یا ارسال می‌شود.\n';
 
   // همان محاسبه‌ی confirmOrder: درصدی از مبلغ نقدی
   const cashback = Math.round((payable * cashbackPercent(env)) / 100);
@@ -505,6 +516,32 @@ export async function broadcastStatusText(env) {
   );
 }
 
+async function enqueueBroadcast(env, adminChatId, chatIds, source, textContent) {
+  await db.setSetting(env, BROADCAST_SOURCE_KEY, JSON.stringify(source));
+  await db.setSetting(env, BROADCAST_ERROR_KEY, '');
+  await db.setSetting(env, BROADCAST_HEARTBEAT_KEY, db.sqlTime());
+
+  await env.DB.prepare("DELETE FROM broadcast_queue").run();
+
+  const stmt = env.DB.prepare("INSERT INTO broadcast_queue (chat_id, text, status) VALUES (?, ?, 'pending')");
+  const batchStmts = chatIds.map((cid) => stmt.bind(cid, textContent));
+  await env.DB.batch(batchStmts);
+
+  // job آخر از همه ذخیره می‌شود تا Cron فقط صف کامل‌شده را بردارد
+  const job = { admin: String(adminChatId), total: chatIds.length, started_at: db.sqlTime(), done: false };
+  await db.setSetting(env, BROADCAST_JOB_KEY, JSON.stringify(job));
+}
+
+// پیام متنی به فهرست مشخصی از کاربران، با همان صف پیام همگانی
+// خروجی: { ok: true, total } یا { ok: false, reason: 'running' | 'empty' }
+export async function broadcastText(env, adminChatId, chatIds, text) {
+  const running = await getBroadcastJob(env);
+  if (running && !running.done) return { ok: false, reason: 'running' };
+  if (!chatIds.length) return { ok: false, reason: 'empty' };
+  await enqueueBroadcast(env, adminChatId, chatIds, null, escapeHtml(text));
+  return { ok: true, total: chatIds.length };
+}
+
 export async function broadcastToAll(env, adminChatId, messageObj) {
   try {
     const running = await getBroadcastJob(env);
@@ -527,19 +564,7 @@ export async function broadcastToAll(env, adminChatId, messageObj) {
 
     const textContent = (messageObj && (messageObj.text || messageObj.caption)) || '';
     const source = { from_chat_id: String(messageObj.chat.id), message_id: messageObj.message_id };
-    await db.setSetting(env, BROADCAST_SOURCE_KEY, JSON.stringify(source));
-    await db.setSetting(env, BROADCAST_ERROR_KEY, '');
-    await db.setSetting(env, BROADCAST_HEARTBEAT_KEY, db.sqlTime());
-
-    await env.DB.prepare("DELETE FROM broadcast_queue").run();
-
-    const stmt = env.DB.prepare("INSERT INTO broadcast_queue (chat_id, text, status) VALUES (?, ?, 'pending')");
-    const batchStmts = chatIds.map((cid) => stmt.bind(cid, textContent));
-    await env.DB.batch(batchStmts);
-
-    // job آخر از همه ذخیره می‌شود تا Cron فقط صف کامل‌شده را بردارد
-    const job = { admin: String(adminChatId), total: chatIds.length, started_at: db.sqlTime(), done: false };
-    await db.setSetting(env, BROADCAST_JOB_KEY, JSON.stringify(job));
+    await enqueueBroadcast(env, adminChatId, chatIds, source, textContent);
 
     await api.sendMessage(
       env,

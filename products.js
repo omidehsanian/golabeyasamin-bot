@@ -10,18 +10,56 @@ export const MAX_TITLE_LENGTH = 40;
 // کپشن عکس در تلگرام حداکثر ۱۰۲۴ کاراکتر است؛ بقیه برای عنوان و قیمت می‌ماند
 export const MAX_DESCRIPTION_LENGTH = 850;
 
+// علامت دکمه‌ی منو برای کالای غیرفعال؛ رنگ دکمه (style) فقط در نسخه‌های جدید تلگرام دیده می‌شود
+const PRESALE_MARK = '⏳';
+const DISABLED_MARK = '🚫';
+const BUTTON_MARK_RE = new RegExp(`^(?:${PRESALE_MARK}|${DISABLED_MARK}) `);
+
+export function hasButtonMark(title) {
+  return BUTTON_MARK_RE.test(String(title ?? ''));
+}
+
+// کالای غیرفعال با قیمت پیش‌خرید: فقط با همان قیمت و خرید مستقیم فروخته می‌شود
+export function isPresale(product) {
+  return Boolean(product?.disabled && product.presalePrice > 0);
+}
+
+export function isPurchasable(product) {
+  return Boolean(product && !product.hidden && (!product.disabled || isPresale(product)));
+}
+
+export function unitPrice(product) {
+  return isPresale(product) ? product.presalePrice : product?.price || 0;
+}
+
+// نام محصول روی سفارش؛ پیام‌های ادمین، گزارش و اکسل پیش‌خرید را از همین تشخیص می‌دهند
+export function orderTitle(product) {
+  return isPresale(product) ? `${product.title} (پیش‌خرید)` : product?.title;
+}
+
+function menuButton(title, disabled, presalePrice) {
+  if (!disabled) return { buttonText: title, buttonStyle: '' };
+  return presalePrice > 0
+    ? { buttonText: `${PRESALE_MARK} ${title}`, buttonStyle: 'success' }
+    : { buttonText: `${DISABLED_MARK} ${title}`, buttonStyle: 'danger' };
+}
+
 function toProduct(row) {
   if (!row) return null;
+  const disabled = Boolean(row.disabled);
+  const presalePrice = Number(row.presale_price) || 0;
   return {
     id: String(row.id),
     title: row.title,
-    buttonText: row.title,
+    ...menuButton(row.title, disabled, presalePrice),
     description: row.description || '',
     photoFileId: row.photo_file_id || '',
     price: Number(row.price) || 0,
     position: Number(row.position) || 0,
     oldPrice: Number(row.old_price) || 0,
     hidden: Boolean(row.hidden),
+    disabled,
+    presalePrice,
     needsOs: false,
   };
 }
@@ -45,7 +83,9 @@ export async function getFullProduct(env, productId) {
 
 export async function findProductIdByButton(env, buttonText) {
   if (!buttonText) return null;
-  const row = await env.DB.prepare('SELECT id FROM products WHERE title = ? AND hidden = 0').bind(buttonText).first();
+  // کیبورد قدیمی کاربر ممکن است هنوز علامت قبلی را داشته باشد، پس علامت بدون توجه به وضعیت فعلی حذف می‌شود
+  const title = String(buttonText).replace(BUTTON_MARK_RE, '');
+  const row = await env.DB.prepare('SELECT id FROM products WHERE title = ? AND hidden = 0').bind(title).first();
   return row ? String(row.id) : null;
 }
 
@@ -76,6 +116,8 @@ const EDITABLE_FIELDS = {
   price: 'price',
   oldPrice: 'old_price',
   hidden: 'hidden',
+  disabled: 'disabled',
+  presalePrice: 'presale_price',
 };
 
 export async function updateProduct(env, productId, patch) {
@@ -113,7 +155,12 @@ export async function deleteProduct(env, productId) {
 
 export function buildProductCaption(product) {
   let text = `🛍 <b>${escapeHtml(product.title)}</b>\n\n${escapeHtml(product.description)}\n\n`;
-  if (product.price > 0 && product.oldPrice > product.price) {
+  if (isPresale(product)) {
+    if (product.price > 0) text += `💰 قیمت عادی: <s>${money(product.price)}</s> تومان\n`;
+    text += `⏳ قیمت پیش‌خرید: <b>${money(product.presalePrice)} تومان</b>\n📦 فعلاً ناموجود؛ بعد از موجود شدن ارسال می‌شود.`;
+  } else if (product.disabled) {
+    text += '🚫 این محصول فعلاً موجود نیست.';
+  } else if (product.price > 0 && product.oldPrice > product.price) {
     text += `💰 قیمت: <s>${money(product.oldPrice)}</s> تومان\n🔥 تخفیف ویژه: <b>${money(product.price)} تومان</b>`;
   } else {
     text += product.price > 0
@@ -161,7 +208,7 @@ export function variantLabel(variant) {
 
 // قیمت کالا (قیمت واحد × تعداد)، بدون هزینه‌ی ارسال
 export function resolvePrice(product, variant = '') {
-  return product ? (product.price || 0) * parseVariant(variant).quantity : 0;
+  return product ? unitPrice(product) * parseVariant(variant).quantity : 0;
 }
 
 // هزینه‌ی ارسال بر اساس مبلغ کالا بعد از تخفیف

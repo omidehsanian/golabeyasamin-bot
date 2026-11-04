@@ -1,7 +1,7 @@
 import * as api from './api.js';
 import * as db from './db.js';
 import * as KB from './keyboards.js';
-import { findProductIdByButton, getFullProduct, orderPrice, escapeHtml } from './products.js';
+import { findProductIdByButton, getFullProduct, isPresale, orderPrice, orderTitle, escapeHtml } from './products.js';
 import { CART_PRODUCT_ID, getOrderProduct, isCartActive, replaceOrderItems, setCartActive } from './cart.js';
 import { resolveDiscountCode } from './discounts.js';
 import { DISCOUNT_SESSION_STATE, handleDiscountInput, showDiscountsPanel } from './admin_discounts.js';
@@ -27,6 +27,7 @@ import { sendOrderDetails, showOrdersPanel } from './admin_orders.js';
 import {
   PRODUCT_SESSION_STATES,
   handleProductSessionMessage,
+  showDisablePicker,
   showProductsAdmin,
   startNewProduct,
 } from './admin_products.js';
@@ -49,6 +50,7 @@ export async function handleMessage(env, message) {
       helpMsg += `📖 <b>پنل مدیریت:</b>\n` +
         `🔹 دکمه «${KB.NEW_PRODUCT_BUTTON}»\n👉 ساخت محصول: نام ← ویژگی‌ها ← عکس ← قیمت ← جایگاه دکمه\n` +
         `🔹 دکمه «${KB.MANAGE_PRODUCTS_BUTTON}»\n👉 ویرایش نام/ویژگی‌ها/عکس/قیمت، جابجایی و حذف محصولات\n` +
+        `🔹 دکمه «${KB.DISABLE_PRODUCT_BUTTON}»\n👉 ناموجود کردن کالا با یا بدون قیمت پیش‌خرید، و فعال کردن دوباره\n` +
         `🔹 دکمه «${KB.ADMIN_DISCOUNTS_BUTTON}»\n👉 ساخت کد برای یک محصول یا همه، با مدت یک روز، یک هفته یا دائمی\n` +
         `🔹 دکمه «${KB.CART_TOGGLE_PREFIX}»\n👉 روشن/خاموش کردن سبد خرید\n` +
         `🔹 <code>/toggrediscount</code>\n👉 روشن یا خاموش کردن سیستم کد تخفیف\n` +
@@ -164,6 +166,12 @@ export async function handleMessage(env, message) {
   if (isAdmin(env, chatId) && text === KB.MANAGE_PRODUCTS_BUTTON) {
     await db.clearSession(env, chatId);
     await showProductsAdmin(env, chatId);
+    return;
+  }
+
+  if (isAdmin(env, chatId) && text === KB.DISABLE_PRODUCT_BUTTON) {
+    await db.clearSession(env, chatId);
+    await showDisablePicker(env, chatId);
     return;
   }
 
@@ -508,7 +516,7 @@ export async function handleMessage(env, message) {
     }
 
     const product = boundOrder ? await getOrderProduct(env, boundOrder) : await getFullProduct(env, productId);
-    const title = escapeHtml(product?.title || boundOrder?.product_title || info.title || productId);
+    const title = escapeHtml(orderTitle(product) || boundOrder?.product_title || info.title || productId);
     const discountedPrice = orderPrice(env, product, osType, discountPercent).price;
     // موجودی منفی هرگز نباید به «اعتبار منفی» و افزایش مبلغ فاکتور تبدیل شود
     const wallet = Math.max(0, await db.getWallet(env, chatId));
@@ -529,6 +537,7 @@ export async function handleMessage(env, message) {
         walletUsed,
         status: 'receipt_sent',
         note: boundOrder ? `رسید پس از لغو سفارش #1000${boundOrder.id}` : '',
+        presalePrice: isPresale(product) ? product.presalePrice : 0,
       });
       if (productId === CART_PRODUCT_ID && product?.items) await replaceOrderItems(env, rawOrderId, product.items);
     }

@@ -61,7 +61,9 @@ CREATE TABLE IF NOT EXISTS orders (
     address_requested_at     DATETIME,
     address_done_at          DATETIME,  -- خالی با address_requested_at پر یعنی «منتظر آدرس»
     address_reminders        INTEGER DEFAULT 0,
-    address_admin_alerted_at DATETIME
+    address_admin_alerted_at DATETIME,
+    presale_price            INTEGER NOT NULL DEFAULT 0, -- قیمت پیش‌خرید روی پیش‌فاکتور (۰ = سفارش عادی)
+    presale_notified_at      DATETIME                    -- پیام «موجود شد» برای این سفارش رفته است
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_idempotency_key
@@ -118,6 +120,8 @@ CREATE TABLE IF NOT EXISTS products (
     position      INTEGER NOT NULL,
     old_price     INTEGER NOT NULL DEFAULT 0, -- قیمت خط‌خورده (۰ = ندارد)
     hidden        INTEGER NOT NULL DEFAULT 0,
+    disabled      INTEGER NOT NULL DEFAULT 0, -- ناموجود؛ دکمه در منو می‌ماند
+    presale_price INTEGER NOT NULL DEFAULT 0, -- با disabled = 1 و مقدار مثبت یعنی پیش‌خرید
     created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
