@@ -102,7 +102,7 @@
 npm install -g wrangler
 wrangler login
 
-wrangler d1 create mazchim_db          # database_id خروجی را در wrangler.toml بگذارید
+wrangler d1 create golabeyasamin_db          # database_id خروجی را در wrangler.toml بگذارید
 npm run db:init                          # ساخت جدول‌ها روی دیتابیس remote
 
 wrangler secret put BOT_TOKEN            # توکن ربات جدید از BotFather
@@ -160,10 +160,10 @@ npm test     # Node.js 22.5+
 به‌روزرسانی دیتابیس موجود، **قبل از deploy** و به ترتیب:
 
 ```bash
-wrangler d1 execute mazchim_db --remote --file=./migrations/001_cart_address.sql
-wrangler d1 execute mazchim_db --remote --file=./migrations/002_discounts_cart_switch.sql
-wrangler d1 execute mazchim_db --remote --file=./migrations/003_presale.sql
-wrangler d1 execute mazchim_db --remote --file=./migrations/004_presale_notice.sql
+wrangler d1 execute golabeyasamin_db --remote --file=./migrations/001_cart_address.sql
+wrangler d1 execute golabeyasamin_db --remote --file=./migrations/002_discounts_cart_switch.sql
+wrangler d1 execute golabeyasamin_db --remote --file=./migrations/003_presale.sql
+wrangler d1 execute golabeyasamin_db --remote --file=./migrations/004_presale_notice.sql
 ```
 
 ## روشن و خاموش کردن سبد خرید
@@ -229,6 +229,6 @@ wrangler d1 execute mazchim_db --remote --file=./migrations/004_presale_notice.s
 - `python tools/make_products.py <WORKER_URL>`: عکس‌ها را با Edge از روی `tools/product_card.html` در `public/img` می‌سازد و
   `seed_products.sql` را تولید می‌کند
 - عکس‌ها با `[assets]` از خود Worker سرو می‌شوند؛ اجرای seed فقط روی دیتابیس بدون محصول:
-  `wrangler d1 execute mazchim_db --remote --file=./seed_products.sql`
+  `wrangler d1 execute golabeyasamin_db --remote --file=./seed_products.sql`
 
 بعد از seed، همه‌ی محصولات از داخل ربات (🛠 مدیریت محصولات) قابل ویرایش‌اند: نام، ویژگی‌ها، عکس، قیمت، جایگاه و حذف.

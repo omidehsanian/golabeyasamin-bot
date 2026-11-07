@@ -1,5 +1,5 @@
 -- سبد خرید و پروفایل آدرس. روی دیتابیس موجود فقط یک بار و قبل از deploy همین نسخه اجرا شود:
---   wrangler d1 execute mazchim_db --remote --file=./migrations/001_cart_address.sql
+--   wrangler d1 execute golabeyasamin_db --remote --file=./migrations/001_cart_address.sql
 
 ALTER TABLE users ADD COLUMN address TEXT;
 ALTER TABLE users ADD COLUMN postal_code TEXT;

@@ -1,6 +1,6 @@
 -- کد تخفیف ساختنی از داخل ربات، قیمت خط‌خورده و پنهان‌کردن محصول.
 -- روی دیتابیس موجود فقط یک بار و قبل از deploy همین نسخه اجرا شود:
---   wrangler d1 execute mazchim_db --remote --file=./migrations/002_discounts_cart_switch.sql
+--   wrangler d1 execute golabeyasamin_db --remote --file=./migrations/002_discounts_cart_switch.sql
 
 ALTER TABLE products ADD COLUMN old_price INTEGER NOT NULL DEFAULT 0;   -- قیمت خط‌خورده (۰ = ندارد)
 ALTER TABLE products ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;

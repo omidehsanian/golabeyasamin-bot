@@ -1,5 +1,5 @@
 # ساخت عکس محصولات (public/img/*.png) و فایل seed_products.sql از روی tools/products.json
-# اجرا: python tools/make_products.py https://mazchim.emediastorbot.workers.dev
+# اجرا: python tools/make_products.py https://golabeyasamin.emediastorbot.workers.dev
 import json
 import pathlib
 import subprocess

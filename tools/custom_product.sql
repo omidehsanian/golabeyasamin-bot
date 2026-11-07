@@ -8,4 +8,4 @@ INSERT INTO products (title, description, photo_file_id, price, position) VALUES
 🌹 گلاب دوآتیشه: دو بار تقطیر، غلیظ و خوش‌عطر
 💝 مناسب هدیه، سوغاتی، جهیزیه و مراسم
 
-⚠️ در دوران بارداری، شیردهی یا در صورت بیماری، پیش از مصرف با پزشک مشورت کنید.', 'https://mazchim.emediastorbot.workers.dev/img/golab-sefareshi.png', 1200000, 1);
+⚠️ در دوران بارداری، شیردهی یا در صورت بیماری، پیش از مصرف با پزشک مشورت کنید.', 'https://golabeyasamin.emediastorbot.workers.dev/img/golab-sefareshi.png', 1200000, 1);
