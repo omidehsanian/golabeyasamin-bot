@@ -458,9 +458,6 @@ export async function handleCallback(env, callbackQuery) {
         order.user_id,
         `✅ <b>سفارش شما با شماره <b>${orderId}</b> تایید شد ${nextStep}.</b>\n\nمحصول: ${productDisplayName}`
       );
-      if (needsAddress(order.os_type) && order.address_requested_at && !order.address_done_at) {
-        await api.sendMessage(env, order.user_id, '📍 برای ارسال این سفارش هنوز آدرس و کد پستی شما را نداریم:', KB.fillAddressKeyboard());
-      }
     }
     if (result.cashback.appliedNow) {
       const balance = await db.getWallet(env, order.user_id);
@@ -469,6 +466,10 @@ export async function handleCallback(env, callbackQuery) {
         order.user_id,
         `💸 <b>کش‌بک خرید!</b>\n<b>${money(result.cashback.amount)} تومان</b> بابت سفارش ${orderId} به کیف پول شما برگشت.\n💼 موجودی فعلی: ${money(balance)} تومان`
       );
+    }
+    // آخرین پیام، تا دکمه‌ی ثبت آدرس زیر پیام‌های دیگر گم نشود
+    if (needsAddress(order.os_type) && order.address_requested_at && !order.address_done_at) {
+      await api.sendMessage(env, order.user_id, '📍 برای ارسال این سفارش هنوز آدرس و کد پستی شما را نداریم:', KB.fillAddressKeyboard());
     }
     return;
   }

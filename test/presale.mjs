@@ -145,6 +145,7 @@ async function main() {
     let page = last(USER);
     assert.ok(page.text.includes('<s>۱۰۰٬۰۰۰</s>') && page.text.includes('۸۰٬۰۰۰'), 'shows both prices');
     assert.ok(page.text.includes('ارگانیک') && page.text.includes('۶ ماه'), 'shows the quality note');
+    assert.ok(!page.text.includes('تحویل حضوری') && !page.text.includes('پیک'), 'no delivery info on the product page');
     assert.ok(callbacks(page).includes('qty:1:1') && !callbacks(page).includes('buy:1'), 'direct buy, not cart');
 
     await handleMessage(env, msg(USER, '🚫 محصول 2'));
@@ -365,6 +366,28 @@ async function main() {
     await handleCallbackQuery(env, cb(SUPPORT, 'nt:2:b'));
     assert.deepEqual(queued().map((r) => r.chat_id), [OTHER]);
     console.log('✅ status notices: default text, edit, approval, recipients');
+  }
+
+  // ---- ترتیب پیش‌فاکتور و پیام‌های بعد از تایید ----
+  {
+    const env = await makeEnv({ CASHBACK_ENABLED: 'true', CASHBACK_PERCENT: '5' });
+    await handleCallbackQuery(env, cb(USER, 'discount_no:1:c1'));
+    const invoice = last(USER).text;
+    assert.ok(invoice.startsWith('💳 <b>مبلغ قابل پرداخت: ۴۰۰٬۰۰۰ تومان</b>'), 'payable comes first, in bold');
+    assert.equal(invoice.split('مبلغ قابل پرداخت').length, 2, 'payable line is not repeated');
+    assert.ok(invoice.indexOf('🔢 تعداد') > 0, 'details follow');
+
+    const order = await pending(env, USER);
+    await handleCallbackQuery(env, cb(USER, `rcpt:${order.id}`));
+    await handleMessage(env, photo(USER));
+    calls.length = 0;
+    await handleCallbackQuery(env, cb(ADMIN, `confirm_order:${order.id}`));
+    const texts = sent(USER).map((m) => m.body);
+    assert.equal(texts.length, 3, 'confirmation, cashback, address');
+    assert.ok(texts[0].text.includes('تایید شد'));
+    assert.ok(texts[1].text.includes('کش‌بک'));
+    assert.ok(texts[2].text.includes('آدرس') && callbacks(texts[2]).includes('addr:fill'), 'address button is last');
+    console.log('✅ invoice order and messages after confirm');
   }
 
   // ---- امنیت ----

@@ -91,8 +91,7 @@ export async function showProduct(env, chatId, productId) {
   }
 
   const sellable = isPurchasable(product) && unitPrice(product) > 0;
-  let text = buildProductCaption(product);
-  if (sellable) text += `\n\n${shippingInfoText(env)}`;
+  const text = buildProductCaption(product);
   let keyboard = null;
   if (sellable) {
     // پیش‌خرید وارد سبد نمی‌شود تا با کالای موجود در یک سفارش قاطی نشود
@@ -390,7 +389,7 @@ function invoiceText(env, product, osType, discountPercent, b) {
   const { basePrice, discountAmount, shipping, price, wallet, walletUsed, payable } = b;
   const { delivery, quantity } = parseVariant(osType);
 
-  let text = '💳 <b>پیش‌فاکتور خرید:</b>\n\n';
+  let text = `💳 <b>مبلغ قابل پرداخت: ${money(payable)} تومان</b>\n\n🧾 ریز پیش‌فاکتور:\n`;
   if (product.items) {
     for (const i of product.items) {
       text += `▫️ ${escapeHtml(i.title)}: ${i.quantity.toLocaleString('fa-IR')} × ${money(i.unitPrice)} تومان\n`;
@@ -426,7 +425,6 @@ function invoiceText(env, product, osType, discountPercent, b) {
     text += `🔹 کسر شده از کیف پول: ${money(walletUsed)} تومان\n`;
   }
 
-  text += `💳 مبلغ قابل پرداخت: <b>${money(payable)} تومان</b>\n`;
   if (isPresale(product)) text += '⏳ این سفارش پیش‌خرید است و بعد از موجود شدن کالا تحویل یا ارسال می‌شود.\n';
 
   // همان محاسبه‌ی confirmOrder: درصدی از مبلغ نقدی
