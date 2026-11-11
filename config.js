@@ -1,16 +1,32 @@
 // -*- Configuration Helpers -*-
 
 // ادمین‌ها فقط از wrangler.toml خوانده می‌شوند (هیچ آیدی ثابتی داخل کد نیست)
+// هر متغیر می‌تواند چند آیدی جدا با ویرگول داشته باشد: "111,222"
+function idList(value) {
+  return String(value || '').split(/[,،\s]+/).map((id) => id.trim()).filter(Boolean);
+}
+
+export function superAdminIds(env) {
+  return idList(env?.ADMIN_CHAT_ID);
+}
+
+export function supportIds(env) {
+  return idList(env?.SUPPORT_CHAT_ID);
+}
+
+// گیرندگان پیام‌های پشتیبانی/سفارش: همه‌ی ادمین‌های پشتیبانی و سوپرادمین‌ها (بدون تکرار)
+export function adminIds(env) {
+  return [...new Set([...supportIds(env), ...superAdminIds(env)])];
+}
+
 export function isSuperAdmin(env, chatId) {
   const currentId = String(chatId || '').trim();
-  const adminId = String(env?.ADMIN_CHAT_ID || '').trim();
-  return currentId !== '' && currentId === adminId;
+  return currentId !== '' && superAdminIds(env).includes(currentId);
 }
 
 export function isAdmin(env, chatId) {
   const currentId = String(chatId || '').trim();
-  const supportId = String(env?.SUPPORT_CHAT_ID || '').trim();
-  return isSuperAdmin(env, chatId) || (currentId !== '' && currentId === supportId);
+  return currentId !== '' && adminIds(env).includes(currentId);
 }
 
 export function shopName(env) {

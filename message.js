@@ -5,7 +5,7 @@ import { findProductIdByButton, getFullProduct, isPresale, orderPrice, orderTitl
 import { CART_PRODUCT_ID, getOrderProduct, isCartActive, replaceOrderItems, setCartActive } from './cart.js';
 import { resolveDiscountCode } from './discounts.js';
 import { DISCOUNT_SESSION_STATE, handleDiscountInput, showDiscountsPanel } from './admin_discounts.js';
-import { cartConfigEnabled, isSuperAdmin, isAdmin, money, signupBonus, shopName, customBotEnabled, supportPhoneLink } from './config.js';
+import { adminIds, cartConfigEnabled, isSuperAdmin, isAdmin, money, signupBonus, shopName, customBotEnabled, supportPhoneLink } from './config.js';
 import {
   menuKeyboardFor,
   canProceed,
@@ -423,7 +423,7 @@ export async function handleMessage(env, message) {
       });
       return;
     }
-    const supportId = env.SUPPORT_CHAT_ID || env.ADMIN_CHAT_ID;
+    const supportId = adminIds(env)[0];
     const supportName = env.SUPPORT_USERNAME ? `@${String(env.SUPPORT_USERNAME).replace('@', '')}` : 'پشتیبانی';
     await api.sendMessage(env, chatId, `📞 آیدی پشتیبانی:\n👉 <a href="tg://user?id=${supportId}">${escapeHtml(supportName)}</a>`, await menuKeyboardFor(env, chatId));
     return;
@@ -543,7 +543,7 @@ export async function handleMessage(env, message) {
     }
     const orderId = `1000${rawOrderId}`;
 
-    await api.forwardMessage(env, env.SUPPORT_CHAT_ID || env.ADMIN_CHAT_ID, chatId, message.message_id);
+    for (const id of adminIds(env)) await api.forwardMessage(env, id, chatId, message.message_id);
 
     const phone = await db.getPhone(env, chatId);
     const savedOrder = await prepareOrderDelivery(env, chatId, await db.getOrder(env, rawOrderId));

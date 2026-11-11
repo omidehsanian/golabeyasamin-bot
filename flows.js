@@ -16,7 +16,7 @@ import {
   variantLabel,
 } from './products.js';
 import { CART_PRODUCT_ID, applyDiscountScope, cartAsProduct, cartQuantity, getCart, getOrderProduct, isCartActive, itemsTotal, removeOrderItemsFromCart, replaceOrderItems } from './cart.js';
-import { cartConfigEnabled, cashbackPercent, channelEnabled, customBotEnabled, freeShippingMin, money, isAdmin, isSuperAdmin, productColumns, productFeaturedFirst } from './config.js';
+import { cartConfigEnabled, cashbackPercent, channelEnabled, customBotEnabled, freeShippingMin, money, adminIds, isAdmin, isSuperAdmin, productColumns, productFeaturedFirst } from './config.js';
 
 const BROADCAST_SOURCE_KEY = 'broadcast_source';
 
@@ -449,12 +449,8 @@ function invoiceText(env, product, osType, discountPercent, b) {
 // اطلاع‌رسانی به ادمین‌ها
 // ----------------------------------------------------
 export async function notifyAdmin(env, text, keyboard = null) {
-  const supportId = env.SUPPORT_CHAT_ID || env.ADMIN_CHAT_ID;
-  if (supportId) {
-    await api.sendMessage(env, supportId, text, keyboard);
-  }
-  if (env.ADMIN_CHAT_ID && env.ADMIN_CHAT_ID !== supportId) {
-    await api.sendMessage(env, env.ADMIN_CHAT_ID, text, keyboard);
+  for (const id of adminIds(env)) {
+    await api.sendMessage(env, id, text, keyboard);
   }
 }
 

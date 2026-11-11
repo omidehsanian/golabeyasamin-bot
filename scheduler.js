@@ -8,6 +8,7 @@ import * as api from './api.js';
 import * as db from './db.js';
 import { fillAddressKeyboard, resumeKeyboard } from './keyboards.js';
 import { escapeHtml } from './products.js';
+import { adminIds } from './config.js';
 
 const MAX_NOTIFY_ATTEMPTS = 3;
 // سقف کار در هر اجرا (محدودیت تعداد کوئری/درخواست خروجی هر اجرای Worker)
@@ -96,15 +97,16 @@ function addressAlertText(order, reason) {
   );
 }
 
-// پیگیری سفارش‌های پرداخت‌شده‌ی بدون آدرس: دو یادآوری به مشتری، بعد تماس ادمین.
+// پیگیری سفارش‌های پرداخت‌شده‌ی بدون آدرس: دو یادآوری به مشتری، بعد هشدار به پشتیبانی (و سوپرادمین برای اطلاع).
 // اگر پیام به مشتری نرسد (مثلاً ربات را بلاک کرده) ادمین همان موقع خبردار می‌شود.
 async function processAddressFollowups(env, now, summary) {
   const hour = tehranHour(now);
   if (hour < ADDRESS_HOURS.from || hour >= ADDRESS_HOURS.to) return;
 
   const alert = async (order, reason) => {
-    if (!env.ADMIN_CHAT_ID || !(await db.claimAddressAlert(env, order.id, now))) return;
-    await deliver(env, env.ADMIN_CHAT_ID, addressAlertText(order, reason));
+    const ids = adminIds(env);
+    if (ids.length === 0 || !(await db.claimAddressAlert(env, order.id, now))) return;
+    for (const id of ids) await deliver(env, id, addressAlertText(order, reason));
     summary.addressAlerts++;
   };
 
@@ -151,9 +153,11 @@ export async function processPendingOrders(env, now = new Date()) {
   }
 
   // ۱-ب) یک پیام خلاصه برای ادمین (فقط اطلاع‌رسانی؛ در صورت خطا تکرار نمی‌شود)
-  if (cancelledOrders.length > 0 && env.ADMIN_CHAT_ID) {
-    const result = await deliver(env, env.ADMIN_CHAT_ID, adminCancelText(cancelledOrders));
-    summary.adminNotice = result.outcome;
+  if (cancelledOrders.length > 0) {
+    for (const id of adminIds(env)) {
+      const result = await deliver(env, id, adminCancelText(cancelledOrders));
+      summary.adminNotice = result.outcome;
+    }
   }
 
   // ۲) اطلاع‌رسانی لغو (شامل تلاش مجدد برای خطاهای موقت)

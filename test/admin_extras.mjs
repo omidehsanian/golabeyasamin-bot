@@ -110,7 +110,7 @@ async function main() {
     const t = notices[0].body.text;
     assert.ok(t.includes('2 سفارش') && t.includes('100040') && t.includes('100041'), 'lists cancelled orders');
     assert.ok(/100040[^\n]*رسید/.test(t) && !/100041[^\n]*رسید/.test(t), 'flags only the order awaiting receipt');
-    assert.equal(textsTo(SUPPORT).length, 0, 'support not spammed');
+    assert.equal(textsTo(SUPPORT).length, 1, 'support gets the same summary');
 
     calls.length = 0;
     await processPendingOrders(env, new Date());
