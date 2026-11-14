@@ -406,7 +406,7 @@ async function main() {
 
   // ---- ظرف خالی (عنوان با «شیشه») نکته‌ی ارگانیک/تاریخ مصرف نمی‌گیرد ----
   {
-    const bottle = buildProductCaption({ title: '🎨 شیشه‌ی نقاشی‌شده', description: 'یک لیتری', price: 700000 });
+    const bottle = buildProductCaption({ title: '🎨 شیشه ویترای جهت نگهداری بهتر عرقیجات', description: 'یک لیتری', price: 700000 });
     assert.ok(!bottle.includes('ارگانیک') && !bottle.includes('۶ ماه'), 'no quality note for empty bottle');
     assert.ok(bottle.includes('۷۰۰٬۰۰۰'), 'bottle still shows its price');
     const golab = buildProductCaption({ title: 'گلاب', description: 'گلاب سنتی', price: 350000 });
