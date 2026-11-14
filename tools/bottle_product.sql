@@ -7,4 +7,4 @@ INSERT INTO products (title, description, photo_file_id, price, position) VALUES
 🫙 ظرفیت یک لیتر
 💝 مناسب نگهداری گلاب و عرقیات، هدیه، جهیزیه و دکور آشپزخانه
 
-📝 بعد از ثبت سفارش، طرح و رنگ دلخواهتان را به پشتیبانی بگویید.', 'https://golabeyasamin.emediastorbot.workers.dev/img/shishe-naghashi.png?v=2', 700000, (SELECT COALESCE(MAX(position), 0) + 1 FROM products));
+📝 بعد از ثبت سفارش، طرح و رنگ دلخواهتان را به پشتیبانی بگویید.', 'https://golabeyasamin.emediastorbot.workers.dev/img/shishe-vitray.png?v=2', 700000, (SELECT COALESCE(MAX(position), 0) + 1 FROM products));
