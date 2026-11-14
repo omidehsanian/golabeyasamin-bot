@@ -9,7 +9,7 @@ import { handleMessage } from '../message.js';
 import { handleCallbackQuery } from '../callback.js';
 import * as db from '../db.js';
 import { getCart } from '../cart.js';
-import { getFullProduct } from '../products.js';
+import { buildProductCaption, getFullProduct } from '../products.js';
 import { processBroadcastQueue } from '../flows.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -402,6 +402,16 @@ async function main() {
     await handleMessage(env, msg(USER, DISABLE));
     assert.ok(!sent(USER).some((m) => callbacks(m).includes('ds:1')), 'user gets no picker');
     console.log('✅ access control');
+  }
+
+  // ---- ظرف خالی (عنوان با «شیشه») نکته‌ی ارگانیک/تاریخ مصرف نمی‌گیرد ----
+  {
+    const bottle = buildProductCaption({ title: '🎨 شیشه‌ی نقاشی‌شده', description: 'یک لیتری', price: 700000 });
+    assert.ok(!bottle.includes('ارگانیک') && !bottle.includes('۶ ماه'), 'no quality note for empty bottle');
+    assert.ok(bottle.includes('۷۰۰٬۰۰۰'), 'bottle still shows its price');
+    const golab = buildProductCaption({ title: 'گلاب', description: 'گلاب سنتی', price: 350000 });
+    assert.ok(golab.includes('ارگانیک'), 'edible products keep the note');
+    console.log('✅ empty bottle caption');
   }
 }
 

@@ -9,8 +9,13 @@ import { courierFee, freeShippingMin, money, postFee } from './config.js';
 export const MAX_TITLE_LENGTH = 40;
 // کپشن عکس در تلگرام حداکثر ۱۰۲۴ کاراکتر است؛ بقیه برای عنوان و قیمت می‌ماند
 export const MAX_DESCRIPTION_LENGTH = 600;
-// زیر توضیحات همه‌ی محصولات می‌آید
+// زیر توضیحات همه‌ی محصولات خوراکی می‌آید
 export const PRODUCT_QUALITY_NOTE = '🌿 ارگانیک و بدون هیچ‌گونه افزودنی\n🗓 بهترین زمان مصرف: تا ۶ ماه پس از خرید';
+
+// محصولی که عنوانش «شیشه» دارد ظرف خالی است (مثل «🎨 شیشه‌ی نقاشی‌شده») و نکته‌ی بالا را نمی‌گیرد
+export function isEdibleProduct(product) {
+  return !String(product?.title || '').includes('شیشه');
+}
 
 // علامت دکمه‌ی منو برای کالای غیرفعال؛ رنگ دکمه (style) فقط در نسخه‌های جدید تلگرام دیده می‌شود
 const PRESALE_MARK = '⏳';
@@ -156,7 +161,8 @@ export async function deleteProduct(env, productId) {
 }
 
 export function buildProductCaption(product) {
-  let text = `🛍 <b>${escapeHtml(product.title)}</b>\n\n${escapeHtml(product.description)}\n\n${PRODUCT_QUALITY_NOTE}\n\n`;
+  const note = isEdibleProduct(product) ? `${PRODUCT_QUALITY_NOTE}\n\n` : '';
+  let text = `🛍 <b>${escapeHtml(product.title)}</b>\n\n${escapeHtml(product.description)}\n\n${note}`;
   if (isPresale(product)) {
     if (product.price > 0) text += `💰 قیمت عادی: <s>${money(product.price)}</s> تومان\n`;
     text += `⏳ قیمت پیش‌خرید: <b>${money(product.presalePrice)} تومان</b>\n📦 فعلاً ناموجود؛ بعد از موجود شدن ارسال می‌شود.`;
