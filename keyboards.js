@@ -74,12 +74,16 @@ export function mainMenuKeyboard(products = [], opts = {}) {
 
   if (superAdmin) {
     keyboard.push([{ text: ADMIN_ORDERS_BUTTON }, { text: BROADCAST_BUTTON }]);
-    keyboard.push([{ text: ADMINS_BUTTON }]);
   }
+  // ردیف‌ها: [ساخت محصول، فعال/غیرفعال] و [مدیریت محصولات، مدیریت ادمین‌ها]؛ تا وقتی محصولی نیست فقط «ساخت محصول»
   if (admin) {
-    // تا وقتی محصولی نیست فقط «ساخت محصول»
-    keyboard.push(hasProducts ? [{ text: NEW_PRODUCT_BUTTON }, { text: MANAGE_PRODUCTS_BUTTON }] : [{ text: NEW_PRODUCT_BUTTON }]);
-    if (hasProducts) keyboard.push([{ text: DISABLE_PRODUCT_BUTTON }]);
+    keyboard.push(hasProducts ? [{ text: NEW_PRODUCT_BUTTON }, { text: DISABLE_PRODUCT_BUTTON }] : [{ text: NEW_PRODUCT_BUTTON }]);
+  }
+  const manageRow = [];
+  if (admin && hasProducts) manageRow.push({ text: MANAGE_PRODUCTS_BUTTON });
+  if (superAdmin) manageRow.push({ text: ADMINS_BUTTON });
+  if (manageRow.length) keyboard.push(manageRow);
+  if (admin) {
     const row = [{ text: ADMIN_DISCOUNTS_BUTTON }];
     if (cartToggle !== null) row.push({ text: `${CART_TOGGLE_PREFIX}: ${cartToggle ? 'روشن ✅' : 'خاموش ⛔'}` });
     keyboard.push(row);

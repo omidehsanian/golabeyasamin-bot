@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>راهنمای ربات مزرعه چیمه رود</title>
+<!-- منبع PDF راهنما: با Edge/Chrome → Print → Save as PDF (A4، بدون header/footer) یا:
+     msedge --headless --print-to-pdf=../../راهنمای-ربات-مزرعه-چیمه-رود.pdf --no-pdf-header-footer tools/guide.html -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+<style>
+  @page { size: A4; margin: 14mm 10mm; }
+  :root {
+    --rose: #b5175f; --rose-soft: #fdeef5; --rose-line: #f5d5e4;
+    --green: #1f8a4c; --green-soft: #eef7f0; --amber: #b85c00; --amber-soft: #fff4e3;
+    --ink: #221a1f; --muted: #6b6168; --line: #ece4e8;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #fff; color: var(--ink); font-family: Vazirmatn, Tahoma, sans-serif; font-size: 12.5px; line-height: 1.95; }
+  .wrap { width: 100%; margin: 0 auto; }
+  .page-break { break-before: page; }
+  section { margin-bottom: 26px; break-inside: auto; }
+  .card, .step, .tbl, .note, .faq, .deliv, .kbd { break-inside: avoid; }
+
+  .hero { background: linear-gradient(120deg, #8e1048 0%, #c2185b 45%, #1f8a4c 100%); color: #fff; border-radius: 18px; padding: 22px 28px 20px; margin: 0 0 22px; }
+  .pill { display: inline-block; background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.45); border-radius: 999px; padding: 2px 14px; font-weight: 700; font-size: 11.5px; }
+  .hero h1 { font-size: 36px; line-height: 1.5; margin: 12px 0 8px; font-weight: 900; }
+  .hero p { margin: 0; font-size: 14px; opacity: .95; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 18px; }
+  .stat { background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.35); border-radius: 12px; text-align: center; padding: 10px 6px; }
+  .stat b { display: block; font-size: 20px; font-weight: 900; }
+  .stat span { font-size: 11px; }
+
+  .tag { display: inline-block; background: var(--rose-soft); color: var(--rose); border-radius: 999px; padding: 1px 12px; font-size: 11px; font-weight: 700; }
+  h2 { font-size: 23px; font-weight: 900; margin: 8px 0 4px; }
+  h2 em { font-style: normal; color: var(--rose); }
+  .lead { color: var(--muted); margin: 0 0 14px; }
+  code, .mono { font-family: Consolas, "Courier New", monospace; direction: ltr; unicode-bidi: isolate-override; font-size: 11.5px; }
+  td.mono { unicode-bidi: normal; text-align: right; }
+
+  .steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .step { background: var(--rose-soft); border-radius: 12px; text-align: center; padding: 10px 8px; }
+  .step .n { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--rose); color: #fff; font-weight: 800; font-size: 12px; }
+  .step b { display: block; margin-top: 4px; }
+  .step span { color: var(--muted); font-size: 11.5px; line-height: 1.7; display: block; }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .card { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .card .ico { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; font-size: 18px; margin-bottom: 6px; }
+  .card h3 { margin: 0 0 2px; font-size: 14px; font-weight: 800; }
+  .card p { margin: 0; color: var(--muted); }
+  .card.new { border-color: var(--rose-line); background: linear-gradient(180deg, #fff, #fff9fc); }
+  .badge-new { display: inline-block; background: var(--rose); color: #fff; font-size: 9.5px; border-radius: 6px; padding: 0 6px; margin-inline-start: 6px; vertical-align: middle; font-weight: 700; }
+  .i1 { background: #fde3ef; } .i2 { background: #e2f4e8; } .i3 { background: #fff0d9; } .i4 { background: #e3f0fd; } .i5 { background: #efe6fd; } .i6 { background: #e0f6f4; }
+
+  .tint-g { background: var(--green-soft); border: 0; } .tint-g h3 { color: var(--green); }
+  .tint-a { background: var(--amber-soft); border: 0; } .tint-a h3 { color: var(--amber); }
+
+  .deliv { text-align: center; }
+  .deliv .big { font-size: 26px; }
+  .deliv .price { color: var(--rose); font-weight: 800; }
+  .note { border-radius: 12px; padding: 9px 14px; margin-top: 10px; font-weight: 700; }
+  .note.g { background: var(--green-soft); color: var(--green); }
+  .note.r { background: var(--rose-soft); color: var(--rose); }
+  .note.a { background: var(--amber-soft); color: var(--amber); }
+  .note small { display: block; font-weight: 400; color: var(--ink); }
+
+  .tbl { width: 100%; border: 1px solid var(--line); border-radius: 12px; border-collapse: separate; border-spacing: 0; overflow: hidden; }
+  .tbl th { background: var(--rose-soft); color: var(--rose); text-align: right; padding: 7px 14px; font-weight: 800; }
+  .tbl td { padding: 6px 14px; border-top: 1px solid var(--line); }
+  .tbl tr:nth-child(even) td { background: #fcfafb; }
+  .tbl td.mono { white-space: nowrap; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: var(--rose-soft); border-radius: 999px; padding: 2px 12px; font-weight: 700; }
+  .chip i { font-style: normal; color: var(--rose); margin-inline-start: 6px; }
+  .chip.pre { background: var(--amber-soft); }
+  .chip.pre i { color: var(--amber); }
+
+  .kbd { border: 1px solid var(--line); border-radius: 14px; padding: 10px; background: #f6f3f5; }
+  .kbd .row { display: grid; gap: 6px; margin-bottom: 6px; }
+  .kbd .row:last-child { margin-bottom: 0; }
+  .kbd .k { background: #fff; border-radius: 8px; text-align: center; padding: 5px 4px; font-weight: 700; box-shadow: 0 1px 0 #ddd3d8; font-size: 12px; }
+  .kbd .k.sa { background: #fff2f8; color: var(--rose); }
+  .kbd .k.nw { outline: 2px solid var(--rose); }
+  .legend { color: var(--muted); font-size: 11px; margin-top: 6px; }
+  .legend b { color: var(--rose); }
+
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0 10px; }
+  .flow span { background: #fff; border: 1px solid var(--rose-line); border-radius: 8px; padding: 2px 10px; font-weight: 700; }
+  .flow .arr { border: 0; color: var(--rose); padding: 0; }
+  ul.tight { margin: 4px 0 0; padding-inline-start: 18px; }
+  ul.tight li { margin: 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- ===================== صفحه ۱ ===================== -->
+<header class="hero">
+  <span class="pill">راهنمای کاربری · ربات تلگرام @golabeyasminbot</span>
+  <h1>فروشگاه گلاب و عرقیات<br>مزرعه چیمه رود 🌹</h1>
+  <p>سفارش، پرداخت کارت‌به‌کارت، آدرس مشتری و گزارش فروش، همه داخل تلگرام انجام می‌شود.</p>
+  <p>این راهنما امکانات ربات را برای مشتری و مدیر فروشگاه توضیح می‌دهد. (به‌روزرسانی: آبان ۱۴۰۵)</p>
+  <div class="stats">
+    <div class="stat"><b>۱۶</b><span>محصول در منو</span></div>
+    <div class="stat"><b>۵۰۰٬۰۰۰</b><span>تومان حداقل سفارش</span></div>
+    <div class="stat"><b>۵٪</b><span>کش‌بک هر خرید</span></div>
+    <div class="stat"><b>۱۰۰٬۰۰۰</b><span>تومان هدیه ثبت‌نام</span></div>
+  </div>
+</header>
+
+<section>
+  <span class="tag">مسیر خرید</span>
+  <h2>مشتری در <em>پنج قدم</em> خرید می‌کند</h2>
+  <p class="lead">آدرس جلوی خرید را نمی‌گیرد. این مرحله بعد از پرداخت و فقط در صورت نیاز انجام می‌شود.</p>
+  <div class="steps">
+    <div class="step"><span class="n">۱</span><b>انتخاب محصول</b><span>عکس، توضیح و قیمت</span></div>
+    <div class="step"><span class="n">۲</span><b>سبد خرید</b><span>چند محصول با تعداد دلخواه</span></div>
+    <div class="step"><span class="n">۳</span><b>روش تحویل</b><span>حضوری، پیک یا پست</span></div>
+    <div class="step"><span class="n">۴</span><b>پیش‌فاکتور</b><span>مبلغ قابل پرداخت، جمع کل</span></div>
+    <div class="step"><span class="n">۵</span><b>پرداخت</b><span>رسید کارت‌به‌کارت یا کیف پول</span></div>
+  </div>
+  <div class="note r">⚠️ حداقل سفارش ۵۰۰٬۰۰۰ تومان است
+    <small>روی جمع کالاها، قبل از کد تخفیف و هزینه‌ی ارسال حساب می‌شود. اگر سبد کمتر باشد، ربات به‌جای روش تحویل می‌گوید چقدر دیگر کالا لازم است.</small>
+  </div>
+  <div class="grid3" style="margin-top:10px">
+    <div class="card tint-g"><h3>🏬 تحویل حضوری</h3><p>چیزی پرسیده نمی‌شود و سفارش برای بررسی می‌رود.</p></div>
+    <div class="card tint-g"><h3>📍 پیک یا پست، آدرس کامل</h3><p>آدرس ذخیره‌شده خودکار روی سفارش ثبت می‌شود. مشتری می‌تواند آن را تغییر دهد.</p></div>
+    <div class="card tint-a"><h3>⚠️ پیک یا پست، آدرس ناقص</h3><p>همان لحظه آدرس پرسیده می‌شود. اگر مشتری پاسخ ندهد:<br><b>۱ و ۲۴ ساعت بعد:</b> یادآوری به مشتری<br><b>۴۸ ساعت بعد:</b> شماره‌ی مشتری برای تماس مدیر</p></div>
+  </div>
+</section>
+
+<!-- ===================== صفحه ۲ ===================== -->
+<section class="page-break">
+  <span class="tag">روش تحویل</span>
+  <h2>هزینه ارسال <em>روی پیش‌فاکتور</em> حساب می‌شود</h2>
+  <p class="lead">مشتری پیش از پرداخت جمع کل را با هزینه ارسال می‌بیند.</p>
+  <div class="grid3">
+    <div class="card deliv"><div class="big">🏬</div><h3>تحویل حضوری</h3><p>دریافت از فروشگاه</p><div class="price">رایگان</div></div>
+    <div class="card deliv"><div class="big">🛵</div><h3>پیک</h3><p>فقط تهران</p><div class="price">۳۰۰٬۰۰۰ تومان</div></div>
+    <div class="card deliv"><div class="big">📦</div><h3>پست</h3><p>سایر شهرها</p><div class="price">۳۰۰٬۰۰۰ تومان</div></div>
+  </div>
+  <div class="note g">🎁 خرید از ۵٬۰۰۰٬۰۰۰ تومان به بالا (بعد از تخفیف): پیک و پست رایگان</div>
+</section>
+
+<section>
+  <span class="tag">تجربه مشتری</span>
+  <h2>امکانات <em>سمت خریدار</em></h2>
+  <p class="lead">همه‌ی مراحل با دکمه و پیام فارسی انجام می‌شود.</p>
+  <div class="grid2">
+    <div class="card"><div class="ico i1">🛒</div><h3>سبد خرید</h3><p>چند محصول با ➖ و ➕ در سبد قرار می‌گیرد؛ از هر محصول تا ۲۰ عدد. سبد تا زمان پرداخت می‌ماند.</p></div>
+    <div class="card"><div class="ico i2">📍</div><h3>مشخصات آدرس</h3><p>آدرس و کد پستی ۱۰ رقمی یک بار ذخیره می‌شود. مشتری می‌تواند بگوید کد پستی را نمی‌داند.</p></div>
+    <div class="card"><div class="ico i4">📱</div><h3>ثبت‌نام با یک دکمه</h3><p>شماره خود کاربر ثبت می‌شود و ۱۰۰٬۰۰۰ تومان هدیه به کیف پولش می‌رود؛ برای هر شماره یک بار.</p></div>
+    <div class="card"><div class="ico i6">🧾</div><h3>پرداخت با رسید</h3><p>مشتری مبلغ را به کارت پیش‌فاکتور واریز می‌کند و عکس رسید را می‌فرستد.</p></div>
+    <div class="card"><div class="ico i4">💼</div><h3>کیف پول</h3><p>اعتبار کیف پول از مبلغ کم می‌شود. اگر کافی باشد، خرید با یک دکمه و بدون رسید انجام می‌شود.</p></div>
+    <div class="card"><div class="ico i3">💸</div><h3>کش‌بک</h3><p>بعد از تأیید سفارش، ۵٪ مبلغ نقدی پرداخت‌شده به کیف پول مشتری برمی‌گردد.</p></div>
+  </div>
+</section>
+
+<!-- ===================== صفحه ۳ ===================== -->
+<section class="page-break">
+  <div class="grid3">
+    <div class="card"><div class="ico i2">👥</div><h3>دعوت از دوستان</h3><p>هر کاربر لینک دعوت اختصاصی و تعداد دعوت‌شده‌هایش را می‌بیند. پاداش دعوت فعلاً خاموش است (قابل فعال‌سازی).</p></div>
+    <div class="card"><div class="ico i5">🎟</div><h3>کد تخفیف</h3><p>کد می‌تواند برای همه‌ی محصولات یا فقط یک محصول باشد و فقط روی مبلغ کالا اعمال می‌شود. بعد از ۳ تلاش اشتباه، ۱ ساعت قفل می‌شود.</p></div>
+    <div class="card new"><div class="ico i3">⏸</div><h3>پیش‌خرید کالای ناموجود<span class="badge-new">جدید</span></h3><p>کالای تمام‌شده در منو با برچسب ناموجود یا قیمت پیش‌خرید می‌ماند. وقتی دوباره موجود شود، خریداران پیش‌خرید باخبر می‌شوند.</p></div>
+    <div class="card"><div class="ico i1">⏰</div><h3>یادآوری ادامه خرید</h3><p>پیش‌فاکتور پرداخت‌نشده بعد از ۱۰ دقیقه یادآوری می‌شود و بعد از ۶۰ دقیقه خودکار لغو می‌شود.</p></div>
+    <div class="card"><div class="ico i4">📞</div><h3>ارتباط با پشتیبانی</h3><p>یک دکمه چت تلگرام پشتیبانی را مستقیم باز می‌کند.</p></div>
+    <div class="card"><div class="ico i6">🌿</div><h3>صفحه‌ی محصول</h3><p>عکس، ویژگی‌ها، قیمت (و در صورت تخفیف، قیمت خط‌خورده) و نکته‌ی ارگانیک بودن و ماندگاری.</p></div>
+  </div>
+</section>
+
+<section>
+  <span class="tag">پنل مدیریت</span>
+  <h2>مدیریت کامل <em>از داخل تلگرام</em></h2>
+  <p class="lead">این دکمه‌ها فقط در منوی مدیر دیده می‌شوند و پنل وب جداگانه‌ای لازم نیست.</p>
+  <div class="grid3">
+    <div class="card"><div class="ico i2">✅</div><h3>تأیید یا رد با یک دکمه</h3><p>عکس رسید و جزئیات سفارش برای همه‌ی ادمین‌ها می‌رسد. واریز را بررسی کنید و دکمه را بزنید؛ نتیجه به مشتری می‌رسد.</p></div>
+    <div class="card"><div class="ico i3">📍</div><h3>پیگیری سفارش‌های منتظر آدرس</h3><p>سفارش بدون آدرس برچسب هشدار می‌گیرد. با ثبت آدرس پیام می‌آید و در صورت نیاز شماره مشتری برای تماس.</p></div>
+    <div class="card"><div class="ico i1">📊</div><h3>گزارش و خروجی اکسل</h3><p>خلاصه مالی، فروش هر کالا و فایل اکسل سفارش‌ها و کاربران، با آدرس و کد پستی.</p></div>
+    <div class="card"><div class="ico i5">🏷</div><h3>ساخت و ویرایش محصول</h3><p>نام، ویژگی‌ها، عکس، قیمت، قیمت خط‌خورده و جایگاه دکمه را از داخل ربات تغییر دهید، پنهان یا حذف کنید.</p></div>
+    <div class="card"><div class="ico i4">📢</div><h3>پیام همگانی</h3><p>متن، عکس، فیلم، فایل یا ویس به همه می‌رود؛ حدود ۴۰ نفر در دقیقه، با گزارش پایانی و امکان توقف.</p></div>
+    <div class="card"><div class="ico i6">🔎</div><h3>جستجوی سفارش</h3><p>با شماره سفارش، جزئیات کامل را ببینید و سفارش در انتظار بررسی را همان‌جا تأیید یا رد کنید.</p></div>
+  </div>
+</section>
+
+<!-- ===================== صفحه ۴: منوی مدیر و ادمین‌ها ===================== -->
+<section class="page-break">
+  <span class="tag">منوی مدیر</span>
+  <h2>دکمه‌های مدیریت <em>زیر منوی محصولات</em></h2>
+  <p class="lead">ادمین اینترپرایز همه‌ی ردیف‌ها را می‌بیند. ادمین پشتیبانی ردیف اول و دکمه‌ی «مدیریت ادمین‌ها» را نمی‌بیند.</p>
+  <div class="grid2" style="align-items:start">
+    <div>
+      <div class="kbd">
+        <div class="row" style="grid-template-columns:1fr 1fr"><div class="k sa">📦 سفارشات</div><div class="k sa">📢 ارسال پیام همگانی</div></div>
+        <div class="row" style="grid-template-columns:1fr 1fr"><div class="k">➕ ساخت محصول</div><div class="k">⏸ فعال / غیرفعال کردن کالا</div></div>
+        <div class="row" style="grid-template-columns:1fr 1fr"><div class="k">🛠 مدیریت محصولات</div><div class="k sa nw">👮 مدیریت ادمین‌ها</div></div>
+        <div class="row" style="grid-template-columns:1fr 1fr"><div class="k">🎟 کدهای تخفیف</div><div class="k">⚙️ سبد خرید: روشن ✅</div></div>
+      </div>
+      <div class="legend"><b>صورتی</b> = فقط ادمین اینترپرایز · <b>کادردار</b> = جدید</div>
+    </div>
+    <table class="tbl">
+      <tr><th>دکمه</th><th>کاربرد</th></tr>
+      <tr><td>➕ ساخت محصول</td><td>نام ← ویژگی‌ها ← عکس ← قیمت ← جایگاه</td></tr>
+      <tr><td>⏸ فعال / غیرفعال</td><td>ناموجود، قیمت پیش‌خرید، فعال کردن دوباره</td></tr>
+      <tr><td>🛠 مدیریت محصولات</td><td>ویرایش، جابجایی، پنهان و حذف</td></tr>
+      <tr><td>🎟 کدهای تخفیف</td><td>کد یک‌روزه، یک‌هفته‌ای یا دائمی</td></tr>
+      <tr><td>⚙️ سبد خرید</td><td>روشن/خاموش؛ خاموش = خرید مستقیم</td></tr>
+    </table>
+  </div>
+</section>
+
+<section>
+  <span class="tag">مدیریت ادمین‌ها</span>
+  <h2>افزودن و حذف ادمین <em>با چند دکمه</em><span class="badge-new">جدید</span></h2>
+  <p class="lead">دیگر برای ادمین جدید نیازی به توسعه‌دهنده نیست؛ ادمین اینترپرایز از داخل ربات اضافه یا کم می‌کند.</p>
+  <div class="grid2">
+    <div class="card"><div class="ico i1">👑</div><h3>ادمین اینترپرایز</h3><p>همه‌ی امکانات: سفارش‌ها و اکسل، پیام همگانی، کاربران، محصولات، تخفیف، سبد خرید و مدیریت ادمین‌ها.</p></div>
+    <div class="card"><div class="ico i2">🛠</div><h3>ادمین پشتیبانی</h3><p>محصولات، کالای ناموجود و پیش‌خرید، کدهای تخفیف، سبد خرید، تأیید و رد سفارش‌ها و جستجوی سفارش.</p></div>
+  </div>
+  <div class="card" style="margin-top:10px">
+    <h3>➕ مراحل افزودن ادمین</h3>
+    <div class="flow"><span>👮 مدیریت ادمین‌ها</span><span class="arr">←</span><span>➕ افزودن ادمین</span><span class="arr">←</span><span>اینترپرایز یا پشتیبانی</span><span class="arr">←</span><span>انتخاب کاربر</span><span class="arr">←</span><span>✅ تایید</span></div>
+    <ul class="tight">
+      <li>لیست اعضای ربات صفحه‌به‌صفحه (۸ نفر در هر صفحه، جدیدترین اول) با ◀️ قبلی / بعدی ▶️ می‌آید.</li>
+      <li><b>جستجو:</b> در همان صفحه شماره موبایل (مثل <bdi dir="ltr" class="mono">09121234567</bdi> یا <bdi dir="ltr" class="mono">+98 912 123 4567</bdi>، با ارقام فارسی هم)، آیدی عددی، نام کاربری یا نام را بفرستید.</li>
+      <li>کاربر باید قبلاً ربات را استارت کرده باشد. ادمین جدید پیام می‌گیرد و دکمه‌های مدیریت فوراً در منویش ظاهر می‌شوند.</li>
+      <li><b>تغییر نقش یا حذف:</b> روی نام ادمین در پنل بزنید ← 🔄 تغییر نقش یا 🗑 حذف (با تأیید). کاربر حذف‌شده منوی عادی می‌گیرد.</li>
+      <li>🔒 ادمین‌های اصلی که در تنظیمات ربات ثبت شده‌اند از داخل ربات حذف نمی‌شوند، و هیچ ادمینی نقش خودش را تغییر نمی‌دهد.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ===================== صفحه ۵ ===================== -->
+<section class="page-break">
+  <span class="tag">دسته‌های سفارش</span>
+  <h2>هر سفارش <em>کجا</em> پیدا می‌شود؟</h2>
+  <p class="lead">دکمه «📦 سفارشات» این دسته‌ها را باز می‌کند. هر دسته «۱۰ سفارش آخر» و «گزارش کل» دارد.</p>
+  <table class="tbl">
+    <tr><th>دسته</th><th>چه سفارش‌هایی</th></tr>
+    <tr><td>📋 همه سفارش‌ها</td><td>همه‌ی سفارش‌ها</td></tr>
+    <tr><td>✅ تایید نهایی</td><td>تأییدشده یا پرداخت‌شده با کیف پول</td></tr>
+    <tr><td>❌ لغوشده توسط ادمین</td><td>ردشده توسط مدیر</td></tr>
+    <tr><td>⏳ در انتظار بررسی</td><td>رسید رسیده و منتظر تصمیم شماست</td></tr>
+    <tr><td>📍 منتظر آدرس</td><td>پرداخت ثبت شده و آدرس یا کد پستی نیامده</td></tr>
+    <tr><td>🧾 فاکتورهای باز / لغو خودکار</td><td>پیش‌فاکتور باز یا لغوشده به‌خاطر پرداخت‌نشدن</td></tr>
+  </table>
+</section>
+
+<section>
+  <span class="tag">محصولات فعلی</span>
+  <h2>۱۶ محصول <em>در منو</em></h2>
+  <p class="lead">قیمت‌ها به هزار تومان است و از «🛠 مدیریت محصولات» تغییر می‌کنند. نارنجی = ناموجود با قیمت پیش‌خرید.</p>
+  <div class="chips">
+    <span class="chip">🎁 گلاب سفارشی دوآتیشه<i>۱٬۲۰۰</i></span>
+    <span class="chip">🎨 شیشه ویترای جهت نگهداری بهتر عرقیجات<i>۷۰۰</i></span>
+    <span class="chip pre">گلاب دوآتیشه — پیش‌خرید<i>۵۵۰</i></span>
+    <span class="chip pre">گلاب — پیش‌خرید<i>۳۰۰</i></span>
+    <span class="chip">عرق هل<i>۳۵۰</i></span>
+    <span class="chip">عرق دارچین<i>۲۰۰</i></span>
+    <span class="chip">عرق بیدمشک<i>۲۰۰</i></span>
+    <span class="chip">عرق رازیانه<i>۲۰۰</i></span>
+    <span class="chip">عرق زیره<i>۲۰۰</i></span>
+    <span class="chip">عرق بهارنارنج<i>۲۰۰</i></span>
+    <span class="chip">عرق نعنا<i>۱۵۰</i></span>
+    <span class="chip">عرق کاسنی<i>۱۵۰</i></span>
+    <span class="chip">عرق شاتره<i>۱۵۰</i></span>
+    <span class="chip">عرق برگ گردو<i>۱۵۰</i></span>
+    <span class="chip">عرق شوید<i>۱۵۰</i></span>
+    <span class="chip">عرق برگ توت<i>۱۵۰</i></span>
+  </div>
+</section>
+
+<!-- ===================== صفحه ۶ ===================== -->
+<section class="page-break">
+  <span class="tag">تنظیمات فروشگاه</span>
+  <h2>مقادیر <em>فعلی</em> ربات</h2>
+  <p class="lead">این مقدارها در فایل <span class="mono">wrangler.toml</span> هستند. توسعه‌دهنده آن‌ها را تغییر می‌دهد و با <span class="mono">npx wrangler deploy</span> منتشر می‌کند.</p>
+  <table class="tbl">
+    <tr><th>تنظیم</th><th>مقدار فعلی</th><th>کاربرد</th></tr>
+    <tr><td class="mono">CARD_NUMBER</td><td>ثبت شده: <bdi dir="ltr" class="mono">6063 **** **** 4858</bdi></td><td>شماره کارت روی پیش‌فاکتور</td></tr>
+    <tr><td class="mono">CARD_HOLDER</td><td>مرتضی احسانیان چیمه</td><td>نام صاحب کارت</td></tr>
+    <tr><td class="mono">MIN_ORDER_AMOUNT</td><td>۵۰۰٬۰۰۰ تومان</td><td>حداقل جمع کالاها برای ثبت سفارش</td></tr>
+    <tr><td class="mono">COURIER_FEE</td><td>۳۰۰٬۰۰۰ تومان</td><td>هزینه پیک</td></tr>
+    <tr><td class="mono">POST_FEE</td><td>۳۰۰٬۰۰۰ تومان</td><td>هزینه پست</td></tr>
+    <tr><td class="mono">FREE_SHIPPING_MIN</td><td>۵٬۰۰۰٬۰۰۰ تومان</td><td>حداقل خرید برای ارسال رایگان</td></tr>
+    <tr><td class="mono">SIGNUP_BONUS</td><td>۱۰۰٬۰۰۰ تومان</td><td>هدیه ثبت‌نام در کیف پول</td></tr>
+    <tr><td class="mono">REFERRAL_REWARD</td><td>۰ (خاموش)</td><td>پاداش دعوت بعد از اولین خرید دوست</td></tr>
+    <tr><td class="mono">CASHBACK_PERCENT</td><td>۵٪</td><td>کش‌بک مبلغ نقدی</td></tr>
+    <tr><td class="mono">ADMIN_CHAT_ID</td><td>۳ نفر</td><td>ادمین‌های اینترپرایز اصلی (قفل)</td></tr>
+    <tr><td class="mono">SUPPORT_CHAT_ID</td><td>خالی</td><td>ادمین پشتیبانی اصلی؛ بقیه از «👮 مدیریت ادمین‌ها»</td></tr>
+  </table>
+  <div class="note g">کدهای تخفیف، روشن/خاموش بودن سبد خرید و ادمین‌های جدید دیگر به توسعه‌دهنده نیاز ندارند و از داخل ربات تنظیم می‌شوند.</div>
+</section>
+
+<section class="page-break">
+  <span class="tag">دستورهای مدیر</span>
+  <h2>دستورهایی که <em>مدیر لازم دارد</em></h2>
+  <p class="lead"><span class="mono">/help</span> همین فهرست را داخل ربات هم نشان می‌دهد.</p>
+  <table class="tbl">
+    <tr><th>دستور</th><th>کاربرد</th><th>چه کسی</th></tr>
+    <tr><td class="mono">/order 100026</td><td>جزئیات کامل یک سفارش با شماره آن</td><td>همه‌ی ادمین‌ها</td></tr>
+    <tr><td class="mono">/toggrediscount</td><td>روشن یا خاموش کردن سیستم کد تخفیف</td><td>همه‌ی ادمین‌ها</td></tr>
+    <tr><td class="mono">/unlockdiscount</td><td>برداشتن قفل کد تخفیف؛ همراه با آیدی کاربر</td><td>همه‌ی ادمین‌ها</td></tr>
+    <tr><td class="mono">/orders</td><td>باز کردن پنل سفارش‌ها</td><td>اینترپرایز</td></tr>
+    <tr><td class="mono">/users</td><td>فهرست کاربران و فایل اکسل</td><td>اینترپرایز</td></tr>
+    <tr><td class="mono">/broadcaststatus</td><td>وضعیت پیام همگانی در حال ارسال</td><td>اینترپرایز</td></tr>
+    <tr><td class="mono">/stopbroadcast</td><td>توقف پیام همگانی</td><td>اینترپرایز</td></tr>
+    <tr><td class="mono">/deleteuser</td><td>حذف یک کاربر؛ همراه با آیدی کاربر</td><td>اینترپرایز</td></tr>
+    <tr><td class="mono">/id</td><td>دیدن آیدی عددی خودتان</td><td>همه</td></tr>
+  </table>
+</section>
+
+<!-- ===================== صفحه ۸ ===================== -->
+<section class="page-break">
+  <span class="tag">پرسش‌های متداول</span>
+  <h2>اگر این اتفاق <em>افتاد</em></h2>
+  <div class="grid2">
+    <div class="card faq"><h3>دکمه‌های جدید در منو نیست</h3><p><span class="mono">/start</span> را بزنید تا منو تازه شود.</p></div>
+    <div class="card faq"><h3>رد سفارش پول را برمی‌گرداند؟</h3><p>خیر. رد سفارش مبلغی جابه‌جا نمی‌کند و بازگشت وجه کارت‌به‌کارت با فروشگاه است.</p></div>
+    <div class="card faq"><h3>مشتری ربات را بلاک کرده</h3><p>وقتی یادآوری نرسد، شماره او همان موقع برای تماس به مدیر می‌رسد.</p></div>
+    <div class="card faq"><h3>یادآوری آدرس شب نمی‌رود</h3><p>این پیام‌ها فقط بین ساعت ۹ تا ۲۲ به وقت تهران فرستاده می‌شوند.</p></div>
+    <div class="card faq"><h3>سفارش پیک خارج از تهران است</h3><p>ربات شهر را کنترل نمی‌کند. آدرس را ببینید و با مشتری تماس بگیرید.</p></div>
+    <div class="card faq"><h3>تغییر آدرس سفارش تأییدشده</h3><p>این تغییر خودکار اعمال نمی‌شود. آدرس جدید را از مشتری بگیرید.</p></div>
+    <div class="card faq"><h3>مشتری می‌گوید «ثبت سفارش» نمی‌شود</h3><p>احتمالاً جمع سبدش کمتر از ۵۰۰٬۰۰۰ تومان است؛ ربات مبلغ کسری را به خودش می‌گوید.</p></div>
+    <div class="card faq"><h3>کاربر را برای ادمین شدن پیدا نمی‌کنم</h3><p>اول باید ربات را استارت کند. بعد با شماره، آیدی عددی یا نام کاربری جستجو کنید.</p></div>
+  </div>
+</section>
+
+</div>
+</body>
+</html>
