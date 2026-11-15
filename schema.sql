@@ -142,6 +142,15 @@ CREATE TABLE IF NOT EXISTS broadcast_queue (
 );
 
 -- تنظیمات عمومی (مثل discount_active)
+-- ادمین‌هایی که سوپرادمین از داخل ربات (👮 مدیریت ادمین‌ها) اضافه می‌کند؛
+-- ادمین‌های ADMIN_CHAT_ID / SUPPORT_CHAT_ID در wrangler.toml جدا و ثابت هستند
+CREATE TABLE IF NOT EXISTS admins (
+    chat_id    TEXT PRIMARY KEY,
+    role       TEXT NOT NULL CHECK (role IN ('super', 'support')), -- super = ادمین اینترپرایز (همه‌ی امکانات) | support = ادمین پشتیبانی
+    added_by   TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT

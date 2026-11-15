@@ -173,6 +173,7 @@ export async function deleteUser(env, chatId) {
   await env.DB.prepare('DELETE FROM users WHERE chat_id = ?').bind(String(chatId)).run();
   await env.DB.prepare('DELETE FROM sessions WHERE chat_id = ?').bind(String(chatId)).run();
   await env.DB.prepare('DELETE FROM cart_items WHERE chat_id = ?').bind(String(chatId)).run();
+  await env.DB.prepare('DELETE FROM admins WHERE chat_id = ?').bind(String(chatId)).run().catch(() => {});
 }
 
 // ==========================================
@@ -822,4 +823,76 @@ export async function setSession(env, chatId, state, data = {}) {
 
 export async function clearSession(env, chatId) {
   await env.DB.prepare('DELETE FROM sessions WHERE chat_id = ?').bind(String(chatId)).run();
+}
+
+// ==========================================
+// ادمین‌های اضافه‌شده از داخل ربات
+// ==========================================
+
+export async function listDbAdmins(env) {
+  const { results } = await env.DB.prepare(
+    `SELECT a.chat_id, a.role, a.added_by, a.created_at, u.full_name, u.first_name, u.last_name, u.username, u.phone
+     FROM admins a LEFT JOIN users u ON u.chat_id = a.chat_id
+     ORDER BY a.created_at, a.chat_id`
+  ).all();
+  return results || [];
+}
+
+export async function getDbAdmin(env, chatId) {
+  return env.DB.prepare('SELECT * FROM admins WHERE chat_id = ?').bind(String(chatId)).first();
+}
+
+export async function setDbAdmin(env, chatId, role, addedBy) {
+  await env.DB.prepare(
+    `INSERT INTO admins (chat_id, role, added_by) VALUES (?, ?, ?)
+     ON CONFLICT(chat_id) DO UPDATE SET role = excluded.role`
+  ).bind(assertChatId(chatId), role, String(addedBy || '')).run();
+}
+
+export async function removeDbAdmin(env, chatId) {
+  const r = await env.DB.prepare('DELETE FROM admins WHERE chat_id = ?').bind(String(chatId)).run();
+  return Number(r?.meta?.changes || 0) > 0;
+}
+
+// انتخاب کاربر برای ادمین شدن: جدیدترین‌ها اول
+export async function listUsersPage(env, offset, limit) {
+  const { results } = await env.DB.prepare(
+    'SELECT chat_id, full_name, first_name, last_name, username, phone FROM users ORDER BY id DESC LIMIT ? OFFSET ?'
+  ).bind(limit, offset).all();
+  const total = await env.DB.prepare('SELECT COUNT(*) AS n FROM users').first();
+  return { users: results || [], total: Number(total?.n || 0) };
+}
+
+// جستجو با آیدی عددی، شماره (هر قالبی: 0912… / 98912… / +98912…)، نام کاربری یا نام
+export async function searchUsers(env, query, limit = 20) {
+  const q = String(query || '').trim();
+  if (!q) return [];
+  const digits = q.replace(/[\s+()-]/g, '');
+  const params = [];
+  const where = [];
+  if (/^\d+$/.test(digits)) {
+    where.push('chat_id = ?');
+    params.push(digits);
+    // هسته‌ی شماره بدون پیش‌شماره‌ی کشور/صفر، تا 0912 و 98912 هر دو پیدا شوند
+    let core = digits.replace(/^00/, '');
+    if (core.length >= 11 && core.startsWith('98')) core = core.slice(2);
+    if (core.startsWith('0')) core = core.slice(1);
+    if (core.length >= 3) {
+      where.push('phone LIKE ?');
+      params.push(`%${core}%`);
+    }
+    if (digits.length >= 3) {
+      where.push('chat_id LIKE ?');
+      params.push(`${digits}%`);
+    }
+  } else {
+    const like = `%${q.replace(/^@/, '').replace(/[%_]/g, '')}%`;
+    where.push('username LIKE ?', 'full_name LIKE ?', 'first_name LIKE ?', 'last_name LIKE ?');
+    params.push(like, like, like, like);
+  }
+  const { results } = await env.DB.prepare(
+    `SELECT chat_id, full_name, first_name, last_name, username, phone FROM users
+     WHERE ${where.join(' OR ')} ORDER BY id DESC LIMIT ?`
+  ).bind(...params, limit).all();
+  return results || [];
 }

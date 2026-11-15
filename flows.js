@@ -16,7 +16,7 @@ import {
   variantLabel,
 } from './products.js';
 import { CART_PRODUCT_ID, applyDiscountScope, cartAsProduct, cartQuantity, getCart, getOrderProduct, isCartActive, itemsTotal, removeOrderItemsFromCart, replaceOrderItems } from './cart.js';
-import { cartConfigEnabled, cashbackPercent, channelEnabled, customBotEnabled, freeShippingMin, money, adminIds, isAdmin, isSuperAdmin, productColumns, productFeaturedFirst } from './config.js';
+import { cartConfigEnabled, cashbackPercent, channelEnabled, customBotEnabled, freeShippingMin, minOrderAmount, money, adminIds, isAdmin, isSuperAdmin, productColumns, productFeaturedFirst } from './config.js';
 
 const BROADCAST_SOURCE_KEY = 'broadcast_source';
 
@@ -142,10 +142,27 @@ export async function refreshCartMessage(env, chatId, messageId) {
   });
 }
 
+// پیام کمتر از حداقل سفارش؛ null یعنی مبلغ کافی است
+export function minOrderText(env, total) {
+  const min = minOrderAmount(env);
+  if (!min || total >= min) return null;
+  return `⚠️ <b>حداقل مبلغ سفارش ${money(min)} تومان است.</b>
+
+` +
+    `💰 جمع کالاهای شما: ${money(total)} تومان
+` +
+    `➕ لطفاً حداقل ${money(min - total)} تومان دیگر کالا اضافه کنید.`;
+}
+
 export async function askCartDelivery(env, chatId) {
   const items = await getCart(env, chatId);
   if (!items.length) {
     await api.sendMessage(env, chatId, EMPTY_CART_TEXT);
+    return;
+  }
+  const tooLow = minOrderText(env, itemsTotal(items));
+  if (tooLow) {
+    await api.sendMessage(env, chatId, tooLow, KB.cartKeyboard(items));
     return;
   }
   await api.sendMessage(
@@ -157,6 +174,12 @@ export async function askCartDelivery(env, chatId) {
 }
 
 export async function askDelivery(env, chatId, productId, quantity) {
+  const product = await getFullProduct(env, productId);
+  const tooLow = product ? minOrderText(env, unitPrice(product) * quantity) : null;
+  if (tooLow) {
+    await api.sendMessage(env, chatId, tooLow, KB.directBuyKeyboard(product));
+    return;
+  }
   await api.sendMessage(env, chatId, `🚚 روش تحویل را انتخاب کنید:\n\n${shippingInfoText(env)}`, KB.deliveryKeyboard(productId, quantity));
 }
 
@@ -337,6 +360,12 @@ export async function showPayment(env, chatId, productId, osType = '', discountP
   const b = await priceBreakdown(env, chatId, product, osType, discountPercent);
   if (b.basePrice <= 0) {
     await api.sendMessage(env, chatId, '⚠️ این محصول هنوز قیمت‌گذاری نشده است.');
+    return;
+  }
+  // حداقل سفارش روی جمع کالاها (قبل از تخفیف و هزینه‌ی ارسال)؛ همه‌ی مسیرهای صدور پیش‌فاکتور از اینجا می‌گذرند
+  const tooLow = minOrderText(env, b.basePrice);
+  if (tooLow) {
+    await api.sendMessage(env, chatId, tooLow, isCart ? KB.cartKeyboard(cartItems) : KB.directBuyKeyboard(product));
     return;
   }
 

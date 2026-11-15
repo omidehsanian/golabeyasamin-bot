@@ -4,7 +4,8 @@ import * as KB from './keyboards.js';
 import { escapeHtml, getFullProduct, isPresale, isPurchasable, needsAddress, orderPrice, orderTitle, parseVariant, unitPrice, variantCode } from './products.js';
 import { CART_PRODUCT_ID, cartQuantity, changeCartQuantity, clearCart, getOrderProduct, isCartActive } from './cart.js';
 import { handleDiscountCallback, isDiscountAdminCallback } from './admin_discounts.js';
-import { cashbackPercent, money, referralCommissionPercent, referralReward, isAdmin, isSuperAdmin } from './config.js';
+import { cashbackPercent, money, referralCommissionPercent, referralReward, isAdmin, isSuperAdmin, refreshDbAdmins } from './config.js';
+import { handleAdminsCallback, isAdminsCallback } from './admin_admins.js';
 import {
   askCartDelivery,
   askDelivery,
@@ -34,6 +35,7 @@ export async function handleCallback(env, callbackQuery) {
   const data = String(callbackQuery.data || '');
   const callbackId = callbackQuery.id;
   const messageId = callbackQuery.message?.message_id;
+  await refreshDbAdmins(env);
 
   // دکمه‌های مدیریتی فقط برای سوپرادمین
   // نام کاربری تلگرام در مراحل خرید (برای جزئیات سفارش در پنل ادمین)
@@ -44,6 +46,12 @@ export async function handleCallback(env, callbackQuery) {
   const adminOnly = data === 'bc_next' || data.startsWith('adm_') || data.startsWith('ord_type:') || data.startsWith('ord_fetch:');
   if (adminOnly && !isSuperAdmin(env, actorId)) {
     await api.answerCallbackQuery(env, callbackId, { text: '⛔ دسترسی ندارید.', show_alert: true });
+    return;
+  }
+
+  // مدیریت ادمین‌ها (سوپرادمین؛ بررسی دسترسی داخل خود handler)
+  if (isAdminsCallback(data)) {
+    await handleAdminsCallback(env, chatId, actorId, data, callbackId, messageId);
     return;
   }
 

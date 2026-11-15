@@ -5,7 +5,8 @@ import { findProductIdByButton, getFullProduct, isPresale, orderPrice, orderTitl
 import { CART_PRODUCT_ID, getOrderProduct, isCartActive, replaceOrderItems, setCartActive } from './cart.js';
 import { resolveDiscountCode } from './discounts.js';
 import { DISCOUNT_SESSION_STATE, handleDiscountInput, showDiscountsPanel } from './admin_discounts.js';
-import { adminIds, cartConfigEnabled, isSuperAdmin, isAdmin, money, signupBonus, shopName, customBotEnabled, supportPhoneLink } from './config.js';
+import { adminIds, cartConfigEnabled, isSuperAdmin, isAdmin, money, refreshDbAdmins, signupBonus, shopName, customBotEnabled, supportPhoneLink } from './config.js';
+import { ADMIN_SEARCH_STATE, handleAdminSearchInput, showAdminsPanel } from './admin_admins.js';
 import {
   menuKeyboardFor,
   canProceed,
@@ -36,6 +37,7 @@ import { sendUsersExcel } from './admin_users.js';
 export async function handleMessage(env, message) {
   const chatId = String(message.chat.id);
   const text = String(message.text || '').trim();
+  await refreshDbAdmins(env);
 
   if (text === '/id' || text === '/whoami') {
     await api.sendMessage(env, chatId, `🆔 chat_id شما: <code>${chatId}</code>`);
@@ -58,7 +60,10 @@ export async function handleMessage(env, message) {
         `🔹 <code>/order شماره</code>\n👉 جزئیات کامل یک سفارش (مثال: <code>/order 100026</code>)\n\n`;
 
       if (isSuperAdmin(env, chatId)) {
-        helpMsg += `🔹 <code>/orders</code>\n👉 پنل سفارش‌ها، گزارش و خروجی اکسل سفارش‌ها و کاربران\n` +
+        helpMsg += `🔹 دکمه «${KB.ADMINS_BUTTON}»
+👉 افزودن ادمین اینترپرایز یا پشتیبانی از بین اعضا (با جستجوی شماره، آیدی، نام کاربری یا نام)، تغییر نقش و حذف
+` +
+          `🔹 <code>/orders</code>\n👉 پنل سفارش‌ها، گزارش و خروجی اکسل سفارش‌ها و کاربران\n` +
           `🔹 <code>/users</code>\n👉 لیست کامل کاربران + فایل اکسل\n` +
           `🔹 <code>/unverify chat_id</code>\n👉 لغو تاییدیه عضویت کانال یک کاربر\n` +
           `🔹 <code>/unverifyall</code>\n👉 لغو تاییدیه عضویت کانال همه کاربران\n` +
@@ -132,6 +137,12 @@ export async function handleMessage(env, message) {
 
   if (isSuperAdmin(env, chatId) && (text === '/orders' || text === KB.ADMIN_ORDERS_BUTTON)) {
     await showOrdersPanel(env, chatId);
+    return;
+  }
+
+  if (isSuperAdmin(env, chatId) && text === KB.ADMINS_BUTTON) {
+    await db.clearSession(env, chatId);
+    await showAdminsPanel(env, chatId);
     return;
   }
 
@@ -291,6 +302,17 @@ export async function handleMessage(env, message) {
       session.state = null;
     } else {
       await handleDiscountInput(env, chatId, session, text);
+      return;
+    }
+  }
+
+  // جستجوی کاربر برای افزودن ادمین؛ زدن دکمه‌ی منو یا محصول یعنی ادمین از جستجو بیرون رفته
+  if (session.state === ADMIN_SEARCH_STATE) {
+    if (!isSuperAdmin(env, chatId) || KB.RESERVED_BUTTONS.includes(text) || (await findProductIdByButton(env, text))) {
+      await db.clearSession(env, chatId);
+      session.state = null;
+    } else {
+      await handleAdminSearchInput(env, chatId, session, text);
       return;
     }
   }

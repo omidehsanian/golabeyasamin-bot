@@ -2,6 +2,7 @@ import { handleMessage } from './message.js';
 import { handleCallbackQuery } from './callback.js';
 import { processPendingOrders } from './scheduler.js';
 import { processBroadcastQueue } from './flows.js';
+import { refreshDbAdmins } from './config.js';
 
 const SUBREQUEST_BUDGET = 49;
 
@@ -89,6 +90,8 @@ export default {
     ctx.waitUntil(
       (async () => {
         let used = 0;
+        // گیرندگان هشدارها شامل ادمین‌های اضافه‌شده از داخل ربات هم باشند
+        await refreshDbAdmins(env);
         try {
           const orders = await processPendingOrders(env, now);
           used = orders.messages || 0;

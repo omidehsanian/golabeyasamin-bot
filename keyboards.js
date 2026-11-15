@@ -12,6 +12,7 @@ export const ADDRESS_BUTTON = '📍 آدرس';
 export const OLD_ADDRESS_BUTTON = '📍 مشخصات آدرس';
 export const ADMIN_DISCOUNTS_BUTTON = '🎟 کدهای تخفیف';
 export const DISABLE_PRODUCT_BUTTON = '⏸ فعال / غیرفعال کردن کالا';
+export const ADMINS_BUTTON = '👮 مدیریت ادمین‌ها';
 // دکمه‌ی روشن/خاموش سبد خرید برای ادمین‌ها (متن وضعیت بعد از این پیشوند می‌آید)
 export const CART_TOGGLE_PREFIX = '⚙️ سبد خرید';
 
@@ -30,6 +31,7 @@ export const RESERVED_BUTTONS = [
   OLD_ADDRESS_BUTTON,
   ADMIN_DISCOUNTS_BUTTON,
   DISABLE_PRODUCT_BUTTON,
+  ADMINS_BUTTON,
   '🔙 انصراف',
   '📱 ثبت نام',
   '🔙 شاید بعدا',
@@ -45,7 +47,7 @@ export function productRows(items, columns = 2, featuredFirst = false) {
 }
 
 // products: محصولات به ترتیب position
-// opts.superAdmin: سفارشات و پیام همگانی | opts.admin: ساخت/مدیریت محصولات
+// opts.superAdmin: سفارشات، پیام همگانی و مدیریت ادمین‌ها | opts.admin: ساخت/مدیریت محصولات
 // opts.cart: دکمه‌ی سبد دیده شود | opts.cartToggle: null = دکمه‌ی ادمین نباشد، true/false = وضعیت فعلی
 // opts.hasProducts: محصولی هست، حتی اگر همه پنهان باشند
 export function mainMenuKeyboard(products = [], opts = {}) {
@@ -72,6 +74,7 @@ export function mainMenuKeyboard(products = [], opts = {}) {
 
   if (superAdmin) {
     keyboard.push([{ text: ADMIN_ORDERS_BUTTON }, { text: BROADCAST_BUTTON }]);
+    keyboard.push([{ text: ADMINS_BUTTON }]);
   }
   if (admin) {
     // تا وقتی محصولی نیست فقط «ساخت محصول»

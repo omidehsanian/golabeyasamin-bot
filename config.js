@@ -6,12 +6,42 @@ function idList(value) {
   return String(value || '').split(/[,،\s]+/).map((id) => id.trim()).filter(Boolean);
 }
 
-export function superAdminIds(env) {
+// ادمین‌هایی که سوپرادمین از داخل ربات (👮 مدیریت ادمین‌ها) اضافه کرده، از جدول admins.
+// در شروع هر آپدیت با refreshDbAdmins خوانده می‌شوند تا بررسی‌های دسترسی همگام بمانند.
+const dbAdmins = new WeakMap();
+
+export const ADMIN_ROLES = { super: 'super', support: 'support' };
+
+export async function refreshDbAdmins(env) {
+  if (!env || typeof env !== 'object') return;
+  let rows = [];
+  try {
+    rows = (await env.DB.prepare('SELECT chat_id, role FROM admins').all()).results || [];
+  } catch (e) {
+    // جدول هنوز ساخته نشده (migration 005 اجرا نشده): فقط ادمین‌های wrangler.toml
+    rows = [];
+  }
+  dbAdmins.set(env, {
+    super: rows.filter((r) => r.role === ADMIN_ROLES.super).map((r) => String(r.chat_id)),
+    support: rows.filter((r) => r.role === ADMIN_ROLES.support).map((r) => String(r.chat_id)),
+  });
+}
+
+// ادمین‌های ثابت wrangler.toml (از داخل ربات حذف‌شدنی نیستند)
+export function configSuperAdminIds(env) {
   return idList(env?.ADMIN_CHAT_ID);
 }
 
-export function supportIds(env) {
+export function configSupportIds(env) {
   return idList(env?.SUPPORT_CHAT_ID);
+}
+
+export function superAdminIds(env) {
+  return [...new Set([...configSuperAdminIds(env), ...(dbAdmins.get(env)?.super || [])])];
+}
+
+export function supportIds(env) {
+  return [...new Set([...configSupportIds(env), ...(dbAdmins.get(env)?.support || [])])];
 }
 
 // گیرندگان پیام‌های پشتیبانی/سفارش: همه‌ی ادمین‌های پشتیبانی و سوپرادمین‌ها (بدون تکرار)
@@ -101,6 +131,12 @@ export function courierFee(env) {
 export function postFee(env) {
   const n = Number(env?.POST_FEE ?? 300000);
   return Number.isFinite(n) && n >= 0 ? n : 300000;
+}
+
+// حداقل مبلغ کالاها برای ثبت سفارش (تومان، قبل از کد تخفیف و هزینه‌ی ارسال)؛ ۰ = بدون حداقل
+export function minOrderAmount(env) {
+  const n = Number(env?.MIN_ORDER_AMOUNT ?? 0);
+  return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 export function freeShippingMin(env) {
