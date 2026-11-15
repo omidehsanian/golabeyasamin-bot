@@ -30,8 +30,8 @@ SUPPORT_CHAT_ID = "" # ادمین پشتیبانی: محصولات و تایید
 SUPPORT_PHONE = "09194013595"         # دکمه‌ی «ارتباط با ادمین» مستقیم چت تلگرام این شماره را باز می‌کند
 SUPPORT_USERNAME = "" # نام کاربری پشتیبانی بدون @ (برای دکمه‌ی «ارتباط با ادمین»)
 BOT_USERNAME = "golabeyasminbot"      # بدون @ (برای لینک دعوت)
-CHANNEL_USERNAME = ""
-CHANNEL_ENABLED = "false"               # "false" = بدون عضویت اجباری کانال
+CHANNEL_USERNAME = "golabeyasamin"         # کانال عضویت اجباری بدون @ (ربات باید ادمین کانال باشد)
+CHANNEL_ENABLED = "true"                # "false" = بدون عضویت اجباری کانال
 REGISTRATION_ENABLED = "true"
 CARD_NUMBER = "6063731047924858"       # موقت: شماره کارت واقعی را اینجا بگذارید و دوباره deploy کنید
 CARD_HOLDER = "مرتضی احسانیان چیمه"
