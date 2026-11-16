@@ -64,12 +64,9 @@ export function mainMenuKeyboard(products = [], opts = {}) {
   const keyboard = productRows(products, columns, featuredFirst).map((row) =>
     row.map((p) => (p.buttonStyle ? { text: p.buttonText, style: p.buttonStyle } : { text: p.buttonText }))
   );
-  // دکمه‌های ثابت جای خالی ردیف آخر محصولات را پر می‌کنند و با همان تعداد ستون ادامه می‌یابند
-  const fixed = [ADDRESS_BUTTON, ...(cart ? [CART_BUTTON] : []), WALLET_BUTTON, INVITE_BUTTON, SUPPORT_BUTTON, ...(customBot ? [CUSTOM_BOT_BUTTON] : [])]
+  // اول همه‌ی محصولات، بعد دکمه‌های ثابت از ردیف تازه با همان تعداد ستون (با محصولات قاطی نمی‌شوند)
+  const fixed = [...(cart ? [CART_BUTTON] : []), ADDRESS_BUTTON, WALLET_BUTTON, INVITE_BUTTON, SUPPORT_BUTTON, ...(customBot ? [CUSTOM_BOT_BUTTON] : [])]
     .map((text) => ({ text }));
-  // ردیف محصول ویژه همیشه تک‌دکمه می‌ماند
-  const lastRow = products.length > (featuredFirst ? 1 : 0) ? keyboard.at(-1) : null;
-  if (lastRow) lastRow.push(...fixed.splice(0, Math.max(0, columns - lastRow.length)));
   for (let i = 0; i < fixed.length; i += columns) keyboard.push(fixed.slice(i, i + columns));
 
   if (superAdmin) {

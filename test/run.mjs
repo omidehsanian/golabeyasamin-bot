@@ -66,21 +66,21 @@ async function main() {
   for (const p of await listProducts(env)) await deleteProduct(env, p.id);
   console.log('✅ product positions (insert / move / delete) OK');
 
-  // --- چیدمان منو: دکمه‌های ثابت ردیف آخر محصولات را پر می‌کنند ---
+  // --- چیدمان منو: اول محصولات، بعد دکمه‌های ثابت از ردیف تازه ---
   const items = (...names) => names.map((buttonText) => ({ buttonText }));
   const layout = (products, opts) => mainMenuKeyboard(products, { columns: 3, ...opts }).keyboard.map((row) => row.map((b) => b.text));
   assert.deepEqual(layout(items('F', 'a', 'b', 'c', 'd', 'e'), { featuredFirst: true }), [
     ['F'],
     ['a', 'b', 'c'],
-    ['d', 'e', '📍 آدرس'],
-    ['🛒 سبد خرید', '💼 موجودی کیف پول', '👥 دعوت از دوستان'],
-    ['📞 ارتباط با ادمین'],
-  ], 'fills the last product row');
+    ['d', 'e'],
+    ['🛒 سبد خرید', '📍 آدرس', '💼 موجودی کیف پول'],
+    ['👥 دعوت از دوستان', '📞 ارتباط با ادمین'],
+  ], 'products first, fixed buttons after');
   assert.deepEqual(layout(items('a', 'b', 'c'), { cart: false }), [
     ['a', 'b', 'c'],
     ['📍 آدرس', '💼 موجودی کیف پول', '👥 دعوت از دوستان'],
     ['📞 ارتباط با ادمین'],
-  ], 'full product row stays as is');
+  ], 'no cart button when cart is off');
   assert.deepEqual(layout(items('F'), { featuredFirst: true, cart: false })[0], ['F'], 'featured row stays alone');
   console.log('✅ menu layout OK');
 

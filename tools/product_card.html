@@ -2,7 +2,7 @@
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="utf-8">
-<!-- قالب عکس محصول؛ پارامترها در hash به‌صورت JSON: {"title","sub","c1","c2","liquid","motif"} -->
+<!-- قالب عکس محصول؛ پارامترها در hash به‌صورت JSON: {"title","sub","c1","c2","liquid","motif","vessel"} -->
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;700;900&display=block" rel="stylesheet">
 <style>
   html, body { margin: 0; width: 1080px; height: 1080px; overflow: hidden; }
@@ -61,8 +61,17 @@ const frond = (x, y, r, col) => {
   for (let i = 1; i < 12; i++) g += `<path d="M0 ${-i * 22} l ${i % 2 ? 60 : -60} -40" stroke="${col}" stroke-width="5" stroke-linecap="round"/>`;
   return g + '</g>';
 };
+const pomegranate = (x, y, s, col) =>
+  `<g transform="translate(${x} ${y}) scale(${s})"><path d="M-26 -78 L-34 -112 L-12 -96 L0 -120 L12 -96 L34 -112 L26 -78 Z" fill="${col}"/><circle r="92" fill="${col}"/><ellipse cx="-34" cy="-30" rx="22" ry="34" transform="rotate(30 -34 -30)" fill="#ffffff44"/></g>`;
+const arils = (x, y, col) => {
+  let g = '';
+  const pts = [[0,0],[34,-14],[64,8],[22,30],[-30,22],[54,44],[-14,-30]];
+  for (const [dx, dy] of pts) g += `<ellipse cx="${x + dx}" cy="${y + dy}" rx="15" ry="19" fill="${col}" stroke="#ffffff66" stroke-width="3"/>`;
+  return g;
+};
 
 const motifs = {
+  pomegranate: (c) => pomegranate(230, 330, 1.25, c) + pomegranate(860, 300, 0.9, c) + leaf(150, 520, -30, 0.8, '#2e7d32cc') + arils(800, 520, c),
   rose: (c) => rose(250, 330, 1.5, c) + rose(840, 300, 1.1, c) + leaf(170, 520, -30, 0.9, '#2e7d32cc') + leaf(830, 470, 200, 0.8, '#2e7d32cc'),
   leaf: (c) => leaf(130, 360, -35, 1.4, c) + leaf(220, 560, 10, 1.1, c) + leaf(950, 320, 215, 1.3, c) + leaf(870, 560, 170, 1.0, c),
   blossom: (c) => blossom(240, 300, 1.4, c) + blossom(850, 340, 1.1, c) + leaf(160, 520, -20, 0.9, '#558b2fcc') + leaf(900, 520, 200, 0.8, '#558b2fcc'),
@@ -88,8 +97,25 @@ const bottle = `
     <path d="M418 440 C412 560 414 680 424 780" stroke="#ffffff99" stroke-width="12" fill="none" stroke-linecap="round"/>
   </g>`;
 
-document.getElementById('art').innerHTML = (motifs[p.motif] || motifs.leaf)(p.accent || p.c1) + bottle +
-  `<text x="540" y="652" text-anchor="middle" font-family="Vazirmatn, Tahoma" font-weight="700" font-size="${p.label.length > 6 ? 40 : 52}" fill="${p.c1}">${p.label}</text>`;
+// شیشه‌ی دهان‌گشاد برای رب و مربا ("vessel": "jar")
+const jar = `
+  <defs>
+    <linearGradient id="glass" x1="0" x2="1"><stop offset="0" stop-color="#ffffff" stop-opacity=".55"/><stop offset=".5" stop-color="#ffffff" stop-opacity=".18"/><stop offset="1" stop-color="#ffffff" stop-opacity=".5"/></linearGradient>
+    <linearGradient id="liq" x1="0" x2="1"><stop offset="0" stop-color="${p.liquid}"/><stop offset=".5" stop-color="${p.liquid}" stop-opacity=".88"/><stop offset="1" stop-color="${p.liquid}"/></linearGradient>
+    <filter id="sh" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="18" stdDeviation="22" flood-opacity=".25"/></filter>
+  </defs>
+  <g filter="url(#sh)">
+    <rect x="380" y="250" width="320" height="80" rx="18" fill="${p.c1}"/>
+    <path d="M392 278 H688" stroke="#ffffff55" stroke-width="6"/>
+    <path d="M400 330 H680 C710 330 730 350 730 380 V780 C730 810 705 830 675 830 H405 C375 830 350 810 350 780 V380 C350 350 370 330 400 330 Z" fill="url(#glass)" stroke="#ffffffcc" stroke-width="6"/>
+    <path d="M356 400 H724 V780 C724 806 703 824 675 824 H405 C377 824 356 806 356 780 Z" fill="url(#liq)"/>
+    <rect x="410" y="540" width="260" height="160" rx="18" fill="#fffffff0"/>
+    <rect x="426" y="556" width="228" height="128" rx="12" fill="none" stroke="${p.c1}" stroke-width="4"/>
+    <path d="M378 420 C372 560 374 680 384 780" stroke="#ffffff88" stroke-width="12" fill="none" stroke-linecap="round"/>
+  </g>`;
+
+document.getElementById('art').innerHTML = (motifs[p.motif] || motifs.leaf)(p.accent || p.c1) + (p.vessel === 'jar' ? jar : bottle) +
+  `<text x="540" y="${p.vessel === 'jar' ? 638 : 652}" text-anchor="middle" font-family="Vazirmatn, Tahoma" font-weight="700" font-size="${p.label.length > 6 ? 40 : 52}" fill="${p.c1}">${p.label}</text>`;
 document.fonts.ready.then(() => document.body.setAttribute('data-ready', '1'));
 </script>
 </body>

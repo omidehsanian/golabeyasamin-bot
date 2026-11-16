@@ -24,7 +24,7 @@ def main():
 
     rows = []
     for pos, p in enumerate(products, start=1):
-        params = {k: p[k] for k in ("title", "sub", "c1", "c2", "liquid", "accent", "motif", "label")}
+        params = {k: p[k] for k in ("title", "sub", "c1", "c2", "liquid", "accent", "motif", "label", "vessel") if k in p}
         url = template + "#" + urllib.parse.quote(json.dumps(params, ensure_ascii=False))
         png = out_dir / f"{p['slug']}.png"
         subprocess.run(
