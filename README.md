@@ -229,6 +229,7 @@ wrangler d1 execute golabeyasamin_db --remote --file=./migrations/006_marketing_
 | روشن/خاموش کش‌بک | `cashback_enabled` | `CASHBACK_ENABLED` |
 | درصد کش‌بک | `cashback_percent` | `CASHBACK_PERCENT` |
 | مدت اعتبار کش‌بک (روز) | `cashback_expire_days` | ۳۰ |
+| روشن/خاموش سیستم کد تخفیف | `discount_active` | `DISCOUNT_ENABLED` |
 
 ## کش‌بک و انقضای آن
 

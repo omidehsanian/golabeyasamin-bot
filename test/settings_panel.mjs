@@ -32,6 +32,7 @@ const env = {
   CASHBACK_ENABLED: 'true',
   CASHBACK_PERCENT: '5',
   MIN_ORDER_AMOUNT: '500000',
+  DISCOUNT_ENABLED: 'true',
 };
 
 async function main() {
@@ -81,6 +82,14 @@ async function main() {
   assert.equal(cashbackPercent(env), 0, 'کش‌بک خاموش شود');
   assert.equal(await db.getSetting(env, 'cashback_enabled'), '0', 'مقدار در دیتابیس ذخیره شود');
   console.log('✅ settings toggle OK');
+
+  // خاموش‌کردن سیستم کد تخفیف از پنل، همان کلید discount_active را عوض می‌کند
+  await handleSettingsCallback(env, ADMIN, ADMIN, 'set:toggle:discount_active', 'cb4', 45);
+  assert.equal(await db.getSetting(env, 'discount_active'), '0', 'سیستم تخفیف از پنل خاموش شود');
+  assert.equal(await db.isDiscountActive(env), false, 'تخفیف واقعاً غیرفعال شود');
+  await handleSettingsCallback(env, ADMIN, ADMIN, 'set:toggle:discount_active', 'cb5', 46);
+  assert.equal(await db.isDiscountActive(env), true, 'و با دکمه‌ی بعدی دوباره روشن شود');
+  console.log('✅ discount toggle from panel OK');
 
   // بستن پنل
   sent.length = 0;

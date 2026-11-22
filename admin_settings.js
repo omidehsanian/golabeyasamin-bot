@@ -24,6 +24,7 @@ const ICONS = {
   cashback_enabled: '💸',
   cashback_percent: '📊',
   cashback_expire_days: '⏳',
+  discount_active: '🎟',
 };
 
 const faNumber = (n) => Number(n || 0).toLocaleString('fa-IR');

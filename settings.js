@@ -44,6 +44,12 @@ export const FIELDS = [
     max: 365,
     hint: 'بعد از این مدت، کش‌بک مصرف‌نشده از کیف پول حذف می‌شود',
   },
+  {
+    key: KEYS.discountActive,
+    label: 'سیستم کد تخفیف',
+    type: 'bool',
+    hint: 'خاموش‌کردن، پذیرش کد تخفیف را برای همه‌ی کاربران متوقف می‌کند',
+  },
 ];
 
 const RUNTIME_KEYS = FIELDS.map((f) => f.key);
@@ -109,6 +115,7 @@ export function defaultValueFromEnv(env, key) {
     return raw === undefined || String(raw).trim() === '' ? '5' : String(Number(raw) || 0);
   }
   if (key === KEYS.cashbackExpireDays) return String(DEFAULT_CASHBACK_EXPIRE_DAYS);
+  if (key === KEYS.discountActive) return String(env?.DISCOUNT_ENABLED || 'false').toLowerCase() === 'true' ? '1' : '0';
   return '';
 }
 
