@@ -13,6 +13,7 @@ export const OLD_ADDRESS_BUTTON = '📍 مشخصات آدرس';
 export const ADMIN_DISCOUNTS_BUTTON = '🎟 کدهای تخفیف';
 export const DISABLE_PRODUCT_BUTTON = '⏸ فعال / غیرفعال کردن کالا';
 export const ADMINS_BUTTON = '👮 مدیریت ادمین‌ها';
+export const SETTINGS_BUTTON = '⚙️ تنظیمات فروشگاه';
 // دکمه‌ی روشن/خاموش سبد خرید برای ادمین‌ها (متن وضعیت بعد از این پیشوند می‌آید)
 export const CART_TOGGLE_PREFIX = '⚙️ سبد خرید';
 
@@ -32,6 +33,7 @@ export const RESERVED_BUTTONS = [
   ADMIN_DISCOUNTS_BUTTON,
   DISABLE_PRODUCT_BUTTON,
   ADMINS_BUTTON,
+  SETTINGS_BUTTON,
   '🔙 انصراف',
   '📱 ثبت نام',
   '🔙 شاید بعدا',
@@ -84,6 +86,7 @@ export function mainMenuKeyboard(products = [], opts = {}) {
     const row = [{ text: ADMIN_DISCOUNTS_BUTTON }];
     if (cartToggle !== null) row.push({ text: `${CART_TOGGLE_PREFIX}: ${cartToggle ? 'روشن ✅' : 'خاموش ⛔'}` });
     keyboard.push(row);
+    keyboard.push([{ text: SETTINGS_BUTTON }]);
   }
 
   return { keyboard, resize_keyboard: true };

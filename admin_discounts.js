@@ -212,6 +212,7 @@ export async function handleDiscountCallback(env, chatId, actorId, data, callbac
     productId: draft.productId,
     expiresAt,
     createdBy: actorId,
+    duration: draft.duration === 'forever' ? null : draft.duration,
   });
   await db.clearSession(env, chatId);
   await api.answerCallbackQuery(env, callbackId, { text: '✅ کد ساخته شد' });

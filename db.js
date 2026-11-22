@@ -211,10 +211,13 @@ export async function listActiveDiscountCodes(env, now) {
 }
 
 // کد منقضی‌شده با همان نام دوباره قابل ساخت است
-export async function saveDiscountCode(env, { code, percent, productId, expiresAt, createdBy }) {
+export async function saveDiscountCode(env, { code, percent, productId, expiresAt, createdBy, duration = null }) {
   await env.DB.prepare(
-    'INSERT OR REPLACE INTO discount_codes (code, percent, product_id, expires_at, created_by) VALUES (?, ?, ?, ?, ?)'
-  ).bind(code, percent, productId, expiresAt, String(createdBy)).run();
+    `INSERT OR REPLACE INTO discount_codes (code, percent, product_id, expires_at, created_by, duration, reminder_sent_at)
+     VALUES (?, ?, ?, ?, ?, ?, NULL)`
+  )
+    .bind(code, percent, productId, expiresAt, String(createdBy), duration ? String(duration) : null)
+    .run();
 }
 
 export async function deleteDiscountCode(env, code) {
@@ -226,6 +229,152 @@ export async function setSetting(env, key, value) {
     `INSERT INTO settings (key, value) VALUES (?, ?)
      ON CONFLICT(key) DO UPDATE SET value = ?`
   ).bind(key, value, value).run();
+}
+
+// ==========================================
+// کش‌بک با تاریخ انقضا
+// ==========================================
+//
+// هر کش‌بک یک ردیف مستقل دارد تا «مصرف‌شده» و «منقضی» قابل تفکیک باشد:
+//   - با هر خرید از کیف پول، باقی‌مانده‌ی قدیمی‌ترین اعتبارها مصرف می‌شود (consumeCashback)
+//   - Cron دو روز مانده به انقضا یادآوری می‌فرستد و بعد از انقضا باقی‌مانده را از کیف پول کم می‌کند
+
+export async function createCashbackCredit(env, { chatId, orderId, amount, expiresAt }) {
+  const amt = Math.trunc(Number(amount));
+  if (!(amt > 0)) return false;
+  const res = await env.DB.prepare(
+    `INSERT OR IGNORE INTO cashback_credits (chat_id, order_id, amount, remaining, expires_at)
+     VALUES (?, ?, ?, ?, ?)`
+  )
+    .bind(String(chatId), orderId ?? null, amt, amt, Math.trunc(Number(expiresAt)))
+    .run();
+  return res.meta.changes === 1;
+}
+
+// مصرف اعتبارهای کش‌بک به ترتیب نزدیک‌ترین تاریخ انقضا؛ خروجی: مبلغ مصرف‌شده
+export async function consumeCashback(env, chatId, amount) {
+  let left = Math.trunc(Number(amount));
+  if (!(left > 0)) return 0;
+  const { results } = await env.DB.prepare(
+    `SELECT id, remaining FROM cashback_credits
+      WHERE chat_id = ? AND remaining > 0 AND expires_at > ?
+      ORDER BY expires_at, id`
+  )
+    .bind(String(chatId), Date.now())
+    .all();
+  let used = 0;
+  for (const row of results || []) {
+    if (left <= 0) break;
+    const take = Math.min(left, Number(row.remaining));
+    const res = await env.DB.prepare(
+      'UPDATE cashback_credits SET remaining = remaining - ? WHERE id = ? AND remaining >= ?'
+    )
+      .bind(take, row.id, take)
+      .run();
+    if (res.meta.changes === 1) {
+      used += take;
+      left -= take;
+    }
+  }
+  return used;
+}
+
+// اعتبارهایی که «تا فلان مدت دیگر» منقضی می‌شوند و هنوز یادآوری نگرفته‌اند
+export async function listCashbackDueReminders(env, now, windowMs, limit = 20) {
+  const { results } = await env.DB.prepare(
+    `SELECT * FROM cashback_credits
+      WHERE remaining > 0 AND reminded_at IS NULL AND expires_at > ? AND expires_at <= ?
+      ORDER BY expires_at LIMIT ?`
+  )
+    .bind(now, now + windowMs, limit)
+    .all();
+  return results || [];
+}
+
+export async function claimCashbackReminder(env, id, now) {
+  const res = await env.DB.prepare(
+    'UPDATE cashback_credits SET reminded_at = ? WHERE id = ? AND reminded_at IS NULL'
+  )
+    .bind(now, id)
+    .run();
+  return res.meta.changes === 1;
+}
+
+// اگر ارسال با خطای موقت شکست خورد، دفعه‌ی بعد دوباره تلاش شود
+export async function releaseCashbackReminder(env, id) {
+  await env.DB.prepare('UPDATE cashback_credits SET reminded_at = NULL WHERE id = ?').bind(id).run();
+}
+
+export async function listExpiredCashback(env, now, limit = 20) {
+  const { results } = await env.DB.prepare(
+    `SELECT * FROM cashback_credits
+      WHERE remaining > 0 AND expired_at IS NULL AND expires_at <= ?
+      ORDER BY expires_at LIMIT ?`
+  )
+    .bind(now, limit)
+    .all();
+  return results || [];
+}
+
+// باطل‌کردن یک‌باره (خروجی: آیا این اجرا مالک این اعتبار است)
+export async function claimCashbackExpiry(env, id) {
+  const res = await env.DB.prepare(
+    'UPDATE cashback_credits SET expired_at = CURRENT_TIMESTAMP WHERE id = ? AND expired_at IS NULL'
+  )
+    .bind(id)
+    .run();
+  return res.meta.changes === 1;
+}
+
+// ==========================================
+// مصرف کد تخفیف و یادآوری کدهای در حال انقضا
+// ==========================================
+
+export async function recordDiscountUse(env, code, chatId) {
+  if (!code) return;
+  await env.DB.prepare('INSERT OR IGNORE INTO discount_uses (code, chat_id) VALUES (?, ?)')
+    .bind(String(code).toUpperCase(), String(chatId))
+    .run();
+}
+
+// کدهای فعالی که مدت‌شان گذشته نشده و هنوز یادآوری برایشان ارسال نشده
+export async function listDiscountCodesForNotice(env, now, limit = 10) {
+  const { results } = await env.DB.prepare(
+    `SELECT * FROM discount_codes
+      WHERE expires_at IS NOT NULL AND reminder_sent_at IS NULL AND duration IN ('day', 'week') AND expires_at > ?
+      ORDER BY expires_at LIMIT ?`
+  )
+    .bind(now, limit)
+    .all();
+  return results || [];
+}
+
+export async function claimDiscountNotice(env, code, now) {
+  const res = await env.DB.prepare(
+    'UPDATE discount_codes SET reminder_sent_at = ? WHERE code = ? AND reminder_sent_at IS NULL'
+  )
+    .bind(now, String(code))
+    .run();
+  return res.meta.changes === 1;
+}
+
+// کاربرانی که کد را مصرف نکرده‌اند و هنوز این یادآوری را نگرفته‌اند
+export async function listDiscountNoticeRecipients(env, code, limit = 20) {
+  const { results } = await env.DB.prepare(
+    `SELECT chat_id FROM users
+      WHERE chat_id NOT IN (SELECT chat_id FROM discount_uses WHERE code = ?)
+        AND chat_id NOT IN (SELECT chat_id FROM discount_notices WHERE code = ?)
+      ORDER BY id LIMIT ?`
+  )
+    .bind(String(code), String(code), limit)
+    .all();
+  return (results || []).map((r) => String(r.chat_id));
+}
+
+export async function markDiscountNotice(env, code, chatId) {
+  await env.DB.prepare('INSERT OR IGNORE INTO discount_notices (code, chat_id) VALUES (?, ?)')
+    .bind(String(code), String(chatId))
+    .run();
 }
 
 // ==========================================
@@ -309,7 +458,7 @@ export async function getOrder(env, orderId) {
 //
 // خروجی: { ok, reason, order, cashback, commission, referralReward }
 //   reason: 'confirmed' | 'already_confirmed' | 'insufficient_wallet' | 'invalid_status' | 'not_found'
-export async function confirmOrder(env, orderId, { commissionPercent = 0, referralReward = 0, cashbackPercent = 0 } = {}) {
+export async function confirmOrder(env, orderId, { commissionPercent = 0, referralReward = 0, cashbackPercent = 0, cashbackExpiresAt = 0 } = {}) {
   const id = Number(orderId);
   const order = Number.isInteger(id) ? await getOrder(env, id) : null;
   if (!order) return { ok: false, reason: 'not_found', order: null };
@@ -407,6 +556,20 @@ export async function confirmOrder(env, orderId, { commissionPercent = 0, referr
   const confirmedNow = results[confirmIndex].meta.changes === 1;
   const fresh = await getOrder(env, id);
 
+  // کش‌بکِ تازه، اول اعتبارهای قدیمی‌ترِ همین کاربر باید مصرف‌شده حساب شوند
+  // (وگرنه خرید فعلی، کش‌بک خودش را مصرف می‌کرد). سپس اعتبار جدید با تاریخ انقضا ساخته می‌شود.
+  if (confirmedNow && walletDebit > 0) {
+    await consumeCashback(env, order.user_id, walletDebit).catch((e) => console.error('consumeCashback', e));
+  }
+  if (cashbackAmount > 0 && txAppliedNow(results, cashbackIndex) && Number(cashbackExpiresAt) > 0) {
+    await createCashbackCredit(env, {
+      chatId: order.user_id,
+      orderId: id,
+      amount: cashbackAmount,
+      expiresAt: Number(cashbackExpiresAt),
+    }).catch((e) => console.error('createCashbackCredit', e));
+  }
+
   let reason = 'confirmed';
   if (!confirmedNow) {
     if (fresh.status === 'confirmed') reason = 'already_confirmed';
@@ -476,7 +639,10 @@ export async function payOrderWithWallet(env, { payKey, chatId, productId, produ
   ];
   const results = await env.DB.batch(stmts);
   order = await getOrder(env, order.id);
-  if (results[3].meta.changes === 1) return { ok: true, reason: 'paid', order };
+  if (results[3].meta.changes === 1) {
+    await consumeCashback(env, id, order.amount).catch((e) => console.error('consumeCashback', e));
+    return { ok: true, reason: 'paid', order };
+  }
   return { ok: false, reason: 'insufficient_wallet', order };
 }
 
@@ -603,7 +769,10 @@ export async function payPendingOrderWithWallet(env, orderId, chatId, price) {
   ]);
 
   const fresh = await getOrder(env, id);
-  if (results[4].meta.changes === 1) return { ok: true, reason: 'paid', order: fresh };
+  if (results[4].meta.changes === 1) {
+    await consumeCashback(env, userId, amount).catch((e) => console.error('consumeCashback', e));
+    return { ok: true, reason: 'paid', order: fresh };
+  }
   if (fresh.status === 'paid_by_wallet') return { ok: true, reason: 'duplicate', order: fresh };
   if (fresh.status === 'pending') return { ok: false, reason: 'insufficient_wallet', order: fresh };
   return { ok: false, reason: 'not_active', order: fresh };

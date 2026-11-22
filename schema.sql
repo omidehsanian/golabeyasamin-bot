@@ -101,13 +101,49 @@ CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items (order_id);
 
 -- کد تخفیف ساخته‌شده از داخل ربات (🎟 کدهای تخفیف)
 CREATE TABLE IF NOT EXISTS discount_codes (
-    code       TEXT PRIMARY KEY,               -- همیشه با حروف بزرگ
-    percent    INTEGER NOT NULL,
-    product_id TEXT,                           -- NULL = همه‌ی محصولات
-    expires_at INTEGER,                        -- میلی‌ثانیه‌ی Unix؛ NULL = دائمی
-    created_by TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    code             TEXT PRIMARY KEY,         -- همیشه با حروف بزرگ
+    percent          INTEGER NOT NULL,
+    product_id       TEXT,                     -- NULL = همه‌ی محصولات
+    expires_at       INTEGER,                  -- میلی‌ثانیه‌ی Unix؛ NULL = دائمی
+    created_by       TEXT,
+    created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+    duration         TEXT,                     -- day | week | NULL (دائمی) — برای زمان‌بندی یادآوری
+    reminder_sent_at INTEGER                   -- میلی‌ثانیه‌ی Unix؛ NULL = یادآوری «در حال انقضا» ارسال نشده
 );
+
+-- هر کاربری که کد را روی سبد/سفارش اعمال کرده؛ مبنای «کسانی که مصرف نکرده‌اند»
+CREATE TABLE IF NOT EXISTS discount_uses (
+    code    TEXT NOT NULL,
+    chat_id TEXT NOT NULL,
+    used_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (code, chat_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_discount_uses_code ON discount_uses (code);
+
+-- یادآوری ارسال‌شده برای هر کاربر در هر کد (جلوگیری از پیام تکراری)
+CREATE TABLE IF NOT EXISTS discount_notices (
+    code    TEXT NOT NULL,
+    chat_id TEXT NOT NULL,
+    sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (code, chat_id)
+);
+
+-- اعتبار کش‌بک با تاریخ انقضا؛ باقی‌مانده با هر خرید از کیف پول مصرف می‌شود
+CREATE TABLE IF NOT EXISTS cashback_credits (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id     TEXT NOT NULL,
+    order_id    INTEGER UNIQUE,                -- هر سفارش حداکثر یک اعتبار کش‌بک
+    amount      INTEGER NOT NULL,              -- مبلغ اولیه (تومان)
+    remaining   INTEGER NOT NULL,              -- باقی‌مانده‌ی مصرف‌نشده
+    expires_at  INTEGER NOT NULL,              -- میلی‌ثانیه‌ی Unix
+    reminded_at INTEGER,                       -- زمان ارسال یادآوری «۲ روز مانده»
+    expired_at  DATETIME,                      -- زمان باطل‌شدن (کسر از کیف پول)
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_cashback_chat ON cashback_credits (chat_id, expires_at);
+CREATE INDEX IF NOT EXISTS idx_cashback_expiring ON cashback_credits (expires_at) WHERE remaining > 0;
 
 -- محصولات فروشگاه (ادمین از داخل ربات می‌سازد: ➕ ساخت محصول)
 -- position: جایگاه دکمه در منوی اصلی، پشت‌سرهم از ۱

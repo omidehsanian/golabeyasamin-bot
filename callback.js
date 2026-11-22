@@ -4,8 +4,9 @@ import * as KB from './keyboards.js';
 import { escapeHtml, getFullProduct, isPresale, isPurchasable, needsAddress, orderPrice, orderTitle, parseVariant, unitPrice, variantCode } from './products.js';
 import { CART_PRODUCT_ID, cartQuantity, changeCartQuantity, clearCart, getOrderProduct, isCartActive } from './cart.js';
 import { handleDiscountCallback, isDiscountAdminCallback } from './admin_discounts.js';
-import { cashbackPercent, money, referralCommissionPercent, referralReward, isAdmin, isSuperAdmin, refreshDbAdmins } from './config.js';
+import { cashbackExpireDays, cashbackPercent, money, referralCommissionPercent, referralReward, isAdmin, isSuperAdmin, refreshDbAdmins } from './config.js';
 import { handleAdminsCallback, isAdminsCallback } from './admin_admins.js';
+import { handleSettingsCallback, isSettingsCallback } from './admin_settings.js';
 import {
   askCartDelivery,
   askDelivery,
@@ -72,6 +73,16 @@ export async function handleCallback(env, callbackQuery) {
       return;
     }
     await handleDiscountCallback(env, chatId, actorId, data, callbackId, messageId);
+    return;
+  }
+
+  // پنل تنظیمات فروشگاه (همه‌ی ادمین‌ها): حداقل فاکتور، کش‌بک
+  if (isSettingsCallback(data)) {
+    if (!isAdmin(env, actorId)) {
+      await api.answerCallbackQuery(env, callbackId, { text: '⛔ دسترسی ندارید.', show_alert: true });
+      return;
+    }
+    await handleSettingsCallback(env, chatId, actorId, data, callbackId, messageId);
     return;
   }
 
@@ -407,6 +418,7 @@ export async function handleCallback(env, callbackQuery) {
       commissionPercent: referralCommissionPercent(env),
       referralReward: referralReward(env),
       cashbackPercent: cashbackPercent(env),
+      cashbackExpiresAt: Date.now() + cashbackExpireDays(env) * 86400000,
     });
     const order = result.order;
 
@@ -472,7 +484,8 @@ export async function handleCallback(env, callbackQuery) {
       await api.sendMessage(
         env,
         order.user_id,
-        `💸 <b>کش‌بک خرید!</b>\n<b>${money(result.cashback.amount)} تومان</b> بابت سفارش ${orderId} به کیف پول شما برگشت.\n💼 موجودی فعلی: ${money(balance)} تومان`
+        `💸 <b>کش‌بک خرید!</b>\n<b>${money(result.cashback.amount)} تومان</b> بابت سفارش ${orderId} به کیف پول شما برگشت.\n` +
+          `⏳ این اعتبار تا ${cashbackExpireDays(env)} روز قابل استفاده است.\n💼 موجودی فعلی: ${money(balance)} تومان`
       );
     }
     // آخرین پیام، تا دکمه‌ی ثبت آدرس زیر پیام‌های دیگر گم نشود

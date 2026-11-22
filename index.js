@@ -1,10 +1,12 @@
 import { handleMessage } from './message.js';
 import { handleCallbackQuery } from './callback.js';
-import { processPendingOrders } from './scheduler.js';
+import { processMarketingNotifications, processPendingOrders } from './scheduler.js';
 import { processBroadcastQueue } from './flows.js';
-import { refreshDbAdmins } from './config.js';
+import { refreshDbAdmins, refreshRuntimeSettings } from './config.js';
 
 const SUBREQUEST_BUDGET = 49;
+// سهم یادآوری‌های بازاریابی (کش‌بک و کد تخفیف) از بودجه‌ی هر اجرا
+const MARKETING_BUDGET = 10;
 
 // مقایسه‌ی زمان-ثابت، تا از زمان پاسخ نشود secret را حدس زد
 function safeEqual(a, b) {
@@ -71,6 +73,13 @@ export default {
       return new Response('bad request', { status: 400 });
     }
 
+    // مقدارهای پنل تنظیمات ادمین (جدول settings) بر wrangler.toml اولویت دارند
+    try {
+      await refreshRuntimeSettings(env);
+    } catch (e) {
+      console.error('خطای خواندن تنظیمات:', e);
+    }
+
     try {
       if (update.callback_query) {
         await handleCallbackQuery(env, update.callback_query);
@@ -93,11 +102,30 @@ export default {
         // گیرندگان هشدارها شامل ادمین‌های اضافه‌شده از داخل ربات هم باشند
         await refreshDbAdmins(env);
         try {
+          await refreshRuntimeSettings(env);
+        } catch (e) {
+          console.error('خطای خواندن تنظیمات:', e);
+        }
+        try {
           const orders = await processPendingOrders(env, now);
           used = orders.messages || 0;
           console.log('pending-orders', JSON.stringify(orders));
         } catch (e) {
           console.error('خطای پردازش سفارش‌های معلق:', e);
+        }
+        try {
+          // کش‌بک در حال انقضا و کدهای تخفیف استفاده‌نشده
+          const mk = await processMarketingNotifications(
+            env,
+            now,
+            Math.min(MARKETING_BUDGET, SUBREQUEST_BUDGET - 1 - used)
+          );
+          if (mk.messages) {
+            used += mk.messages;
+            console.log('marketing', JSON.stringify(mk));
+          }
+        } catch (e) {
+          console.error('خطای یادآوری‌های بازاریابی:', e);
         }
         try {
           // سقف ۵۰ درخواست خروجی در هر اجرا (پلن رایگان): ۱ جا برای گزارش نهایی می‌ماند

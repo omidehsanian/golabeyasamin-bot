@@ -7,6 +7,7 @@ import { resolveDiscountCode } from './discounts.js';
 import { DISCOUNT_SESSION_STATE, handleDiscountInput, showDiscountsPanel } from './admin_discounts.js';
 import { adminIds, cartConfigEnabled, isSuperAdmin, isAdmin, money, refreshDbAdmins, signupBonus, shopName, customBotEnabled, supportPhoneLink } from './config.js';
 import { ADMIN_SEARCH_STATE, handleAdminSearchInput, showAdminsPanel } from './admin_admins.js';
+import { SETTINGS_SESSION_STATE, handleSettingsInput, showSettingsPanel } from './admin_settings.js';
 import {
   menuKeyboardFor,
   canProceed,
@@ -54,6 +55,7 @@ export async function handleMessage(env, message) {
         `🔹 دکمه «${KB.MANAGE_PRODUCTS_BUTTON}»\n👉 ویرایش نام/ویژگی‌ها/عکس/قیمت، جابجایی و حذف محصولات\n` +
         `🔹 دکمه «${KB.DISABLE_PRODUCT_BUTTON}»\n👉 ناموجود کردن کالا با یا بدون قیمت پیش‌خرید، و فعال کردن دوباره\n` +
         `🔹 دکمه «${KB.ADMIN_DISCOUNTS_BUTTON}»\n👉 ساخت کد برای یک محصول یا همه، با مدت یک روز، یک هفته یا دائمی\n` +
+        `🔹 دکمه «${KB.SETTINGS_BUTTON}»\n👉 حداقل مبلغ فاکتور، درصد و مدت اعتبار کش‌بک (بدون نیاز به دیپلوی)\n` +
         `🔹 دکمه «${KB.CART_TOGGLE_PREFIX}»\n👉 روشن/خاموش کردن سبد خرید\n` +
         `🔹 <code>/toggrediscount</code>\n👉 روشن یا خاموش کردن سیستم کد تخفیف\n` +
         `🔹 <code>/unlockdiscount [chat_id]</code>\n👉 برداشتن قفل کد تخفیف کاربر (یا خودتان)\n` +
@@ -149,6 +151,12 @@ export async function handleMessage(env, message) {
   if (isAdmin(env, chatId) && text === KB.ADMIN_DISCOUNTS_BUTTON) {
     await db.clearSession(env, chatId);
     await showDiscountsPanel(env, chatId);
+    return;
+  }
+
+  if (isAdmin(env, chatId) && text === KB.SETTINGS_BUTTON) {
+    await db.clearSession(env, chatId);
+    await showSettingsPanel(env, chatId);
     return;
   }
 
@@ -302,6 +310,17 @@ export async function handleMessage(env, message) {
       session.state = null;
     } else {
       await handleDiscountInput(env, chatId, session, text);
+      return;
+    }
+  }
+
+  // ویرایش مقدار تنظیمات فروشگاه (حداقل فاکتور، درصد کش‌بک و…)
+  if (session.state === SETTINGS_SESSION_STATE && isAdmin(env, chatId)) {
+    if (KB.RESERVED_BUTTONS.includes(text)) {
+      await db.clearSession(env, chatId);
+      session.state = null;
+    } else {
+      await handleSettingsInput(env, chatId, session, text);
       return;
     }
   }

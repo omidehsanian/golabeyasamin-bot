@@ -1,5 +1,33 @@
 // -*- Configuration Helpers -*-
 
+import { DEFAULT_CASHBACK_EXPIRE_DAYS, KEYS, loadRuntimeSettings } from './settings.js';
+
+// مقادیری که ادمین از پنل تنظیمات تغییر داده و در جدول settings ذخیره شده‌اند.
+// هر آپدیت یک‌بار با refreshRuntimeSettings خوانده می‌شود و بر مقدار wrangler.toml اولویت دارد.
+const runtime = {
+  minOrderAmount: null,
+  cashbackPercent: null,
+  cashbackEnabled: null,
+  cashbackExpireDays: null,
+};
+
+export async function refreshRuntimeSettings(env) {
+  const raw = await loadRuntimeSettings(env);
+  const asInt = (v) => {
+    const n = Number(v);
+    return v === undefined || v === '' || !Number.isFinite(n) ? null : Math.trunc(n);
+  };
+  runtime.minOrderAmount = asInt(raw[KEYS.minOrderAmount]);
+  runtime.cashbackPercent = asInt(raw[KEYS.cashbackPercent]);
+  runtime.cashbackExpireDays = asInt(raw[KEYS.cashbackExpireDays]);
+  runtime.cashbackEnabled = raw[KEYS.cashbackEnabled] === undefined ? null : raw[KEYS.cashbackEnabled] === '1';
+  return runtime;
+}
+
+export function currentRuntimeSettings() {
+  return runtime;
+}
+
 // ادمین‌ها فقط از wrangler.toml خوانده می‌شوند (هیچ آیدی ثابتی داخل کد نیست)
 // هر متغیر می‌تواند چند آیدی جدا با ویرگول داشته باشد: "111,222"
 function idList(value) {
@@ -112,13 +140,25 @@ export function signupBonus(env) {
 
 // کش‌بک خریدار: درصدی از مبلغ نهایی پرداختی (بعد از کد تخفیف و کسر کیف پول) که پس از تایید
 // سفارش به کیف پول خودش برمی‌گردد. خاموش‌کردن: CASHBACK_ENABLED = "false" یا CASHBACK_PERCENT = "0".
-// اگر فعال باشد ولی CASHBACK_PERCENT تنظیم نشده باشد، ۵٪ در نظر گرفته می‌شود.
+// ادمین می‌تواند هر دو را از پنل تنظیمات ربات (جدول settings) تغییر دهد؛ مقدار دیتابیس اولویت دارد.
+// اگر فعال باشد ولی درصد تنظیم نشده باشد، ۵٪ در نظر گرفته می‌شود.
 const DEFAULT_CASHBACK_PERCENT = 5;
 export function cashbackPercent(env) {
-  if (String(env?.CASHBACK_ENABLED || 'false').toLowerCase() !== 'true') return 0;
-  const raw = env?.CASHBACK_PERCENT;
-  const percent = raw === undefined || String(raw).trim() === '' ? DEFAULT_CASHBACK_PERCENT : Number(raw);
+  const enabled =
+    runtime.cashbackEnabled !== null
+      ? runtime.cashbackEnabled
+      : String(env?.CASHBACK_ENABLED || 'false').toLowerCase() === 'true';
+  if (!enabled) return 0;
+  const raw = runtime.cashbackPercent !== null ? runtime.cashbackPercent : env?.CASHBACK_PERCENT;
+  const percent = raw === undefined || raw === null || String(raw).trim() === '' ? DEFAULT_CASHBACK_PERCENT : Number(raw);
   return Number.isFinite(percent) && percent > 0 && percent <= 100 ? percent : 0;
+}
+
+// مدت اعتبار کش‌بک (روز) — پیش‌فرض ۳۰ روز؛ از پنل تنظیمات قابل تغییر است
+export function cashbackExpireDays(env) {
+  if (runtime.cashbackExpireDays !== null && runtime.cashbackExpireDays > 0) return runtime.cashbackExpireDays;
+  const n = Number(env?.CASHBACK_EXPIRE_DAYS);
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : DEFAULT_CASHBACK_EXPIRE_DAYS;
 }
 
 // هزینه‌ی ارسال با پیک (تومان) و حداقل مبلغ خرید برای ارسال رایگان؛ تحویل حضوری همیشه رایگان است
@@ -134,7 +174,9 @@ export function postFee(env) {
 }
 
 // حداقل مبلغ کالاها برای ثبت سفارش (تومان، قبل از کد تخفیف و هزینه‌ی ارسال)؛ ۰ = بدون حداقل
+// مقدار ذخیره‌شده در پنل تنظیمات (settings) بر MIN_ORDER_AMOUNT در wrangler.toml اولویت دارد.
 export function minOrderAmount(env) {
+  if (runtime.minOrderAmount !== null) return runtime.minOrderAmount > 0 ? runtime.minOrderAmount : 0;
   const n = Number(env?.MIN_ORDER_AMOUNT ?? 0);
   return Number.isFinite(n) && n > 0 ? n : 0;
 }

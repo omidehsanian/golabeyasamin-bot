@@ -8,7 +8,7 @@ import * as api from './api.js';
 import * as db from './db.js';
 import { fillAddressKeyboard, resumeKeyboard } from './keyboards.js';
 import { escapeHtml } from './products.js';
-import { adminIds } from './config.js';
+import { adminIds, money } from './config.js';
 
 const MAX_NOTIFY_ATTEMPTS = 3;
 // سقف کار در هر اجرا (محدودیت تعداد کوئری/درخواست خروجی هر اجرای Worker)
@@ -18,6 +18,16 @@ const REMINDER_BATCH = 8;
 const ADDRESS_BATCH = 4;
 // پیام پیگیری آدرس فقط در این بازه به وقت تهران فرستاده می‌شود
 const ADDRESS_HOURS = { from: 9, to: 22 };
+
+// --- کش‌بک و کد تخفیف ---
+const HOUR_MS = 3600000;
+const DAY_MS = 86400000;
+// یادآوری کش‌بک: ۲ روز مانده به انقضا
+const CASHBACK_REMIND_WINDOW_MS = 2 * DAY_MS;
+// یادآوری کد تخفیف: یک‌روزه ۵ ساعت مانده، هفتگی ۱ روز مانده
+const DISCOUNT_NOTICE_THRESHOLD_MS = { day: 5 * HOUR_MS, week: DAY_MS };
+const CASHBACK_BATCH = 6;
+const DISCOUNT_NOTICE_BATCH = 8;
 
 // نتیجه‌ی ارسال: sent | retry (خطای موقت قطعی از تلگرام) | failed (دائمی یا نامعلوم)
 async function deliver(env, chatId, text, keyboard = null) {
@@ -199,5 +209,128 @@ export async function processPendingOrders(env, now = new Date()) {
     summary.reminded + summary.reminderRetry + summary.reminderFailed + (summary.adminNotice ? 1 : 0) +
     summary.addressReminders + summary.addressAlerts;
 
+  return summary;
+}
+
+// ==========================================
+// کش‌بک و کد تخفیف: یادآوری و انقضا (Cron هر دقیقه)
+// ==========================================
+
+function hoursLabel(ms) {
+  return `${Math.max(1, Math.round(ms / HOUR_MS))} ساعت`;
+}
+
+function cashbackReminderText(credit, nowMs) {
+  const daysLeft = Math.max(1, Math.ceil((Number(credit.expires_at) - nowMs) / DAY_MS));
+  return (
+    `💸 <b>کش‌بک شما در حال انقضاست</b>\n\n` +
+    `<b>${money(credit.remaining)} تومان</b> از کش‌بک شما هنوز استفاده نشده و ${daysLeft} روز دیگر منقضی می‌شود.\n` +
+    `تا قبل از آن می‌توانید از موجودی کیف پول برای خرید بعدی استفاده کنید.`
+  );
+}
+
+function cashbackExpiredText(amount) {
+  return (
+    `⌛ <b>کش‌بک استفاده‌نشده منقضی شد</b>\n\n` +
+    `<b>${money(amount)} تومان</b> از اعتبار کش‌بک شما که تا امروز استفاده نشده بود از کیف پول حذف شد.\n` +
+    `با هر خرید جدید، کش‌بک تازه دریافت می‌کنید.`
+  );
+}
+
+function discountNoticeText(code, percent, leftMs) {
+  const scope = 'برای همه‌ی محصولات';
+  return (
+    `🎟 <b>کد تخفیف <code>${escapeHtml(code)}</code> در حال انقضاست</b>\n\n` +
+    `📉 ${escapedPercent(percent)}٪ تخفیف ${scope}\n` +
+    `⏳ فقط ${hoursLabel(leftMs)} تا پایان اعتبار این کد مانده است.\n\n` +
+    `قبل از پایان، سفارشتان را ثبت کنید.`
+  );
+}
+
+function escapedPercent(percent) {
+  return String(Number(percent) || 0);
+}
+
+// یادآوری ۲ روز مانده + باطل‌کردن اعتبارهای منقضی (کسر باقی‌مانده از کیف پول)
+async function processCashbackCredits(env, nowMs, budget, summary) {
+  for (const credit of await db.listExpiredCashback(env, nowMs, CASHBACK_BATCH)) {
+    if (budget <= 0) return;
+    if (!(await db.claimCashbackExpiry(env, credit.id))) continue;
+    const wallet = Number(await db.getWallet(env, credit.chat_id)) || 0;
+    const take = Math.min(Number(credit.remaining) || 0, wallet);
+    if (take > 0) {
+      try {
+        await db.applyWalletTransaction(env, {
+          key: `cashback:${credit.id}:expire`,
+          chatId: credit.chat_id,
+          type: 'cashback_expired',
+          amount: -take,
+          note: `انقضای کش‌بک #${credit.id}`,
+        });
+      } catch (e) {
+        console.error('cashback expire debit failed', credit.id, e);
+      }
+    }
+    const result = await deliver(env, credit.chat_id, cashbackExpiredText(take));
+    budget--;
+    summary.messages++;
+    summary.cashbackExpired++;
+    if (result.outcome === 'retry') summary.retry = (summary.retry || 0) + 1;
+  }
+
+  for (const credit of await db.listCashbackDueReminders(env, nowMs, CASHBACK_REMIND_WINDOW_MS, CASHBACK_BATCH)) {
+    if (budget <= 0) return;
+    if (!(await db.claimCashbackReminder(env, credit.id, nowMs))) continue;
+    const result = await deliver(env, credit.chat_id, cashbackReminderText(credit, nowMs));
+    budget--;
+    if (result.outcome === 'retry') {
+      await db.releaseCashbackReminder(env, credit.id);
+      continue;
+    }
+    summary.messages++;
+    summary.cashbackReminders++;
+  }
+}
+
+// یادآوری کد تخفیف: یک‌روزه «۵ ساعت مانده»، هفتگی «۱ روز مانده»
+// پیام فقط برای کاربرانی که کد را مصرف نکرده‌اند و قبلاً این یادآوری را نگرفته‌اند.
+async function processDiscountNotices(env, nowMs, budget, summary) {
+  for (const code of await db.listDiscountCodesForNotice(env, nowMs)) {
+    if (budget <= 0) return;
+    const left = Number(code.expires_at) - nowMs;
+    const threshold = DISCOUNT_NOTICE_THRESHOLD_MS[code.duration];
+    if (!threshold || left <= 0 || left > threshold) continue;
+
+    const recipients = await db.listDiscountNoticeRecipients(env, code.code, DISCOUNT_NOTICE_BATCH);
+    for (const chatId of recipients) {
+      if (budget <= 0) return;
+      const result = await deliver(env, chatId, discountNoticeText(code.code, code.percent, left));
+      budget--;
+      if (result.outcome === 'retry') return; // بقیه در اجرای بعدی
+      await db.markDiscountNotice(env, code.code, chatId);
+      summary.messages++;
+      summary.discountNotices++;
+    }
+
+    const rest = await db.listDiscountNoticeRecipients(env, code.code, 1);
+    if (rest.length === 0) await db.claimDiscountNotice(env, code.code, nowMs);
+  }
+}
+
+export async function processMarketingNotifications(env, now = new Date(), budget = 10) {
+  const summary = { messages: 0, cashbackReminders: 0, cashbackExpired: 0, discountNotices: 0 };
+  let left = Math.max(0, Math.floor(Number(budget) || 0));
+  if (left <= 0) return summary;
+  try {
+    await processCashbackCredits(env, now.getTime(), left, summary);
+    left = Math.max(0, budget - summary.messages);
+  } catch (e) {
+    console.error('خطای پردازش کش‌بک:', e);
+  }
+  try {
+    await processDiscountNotices(env, now.getTime(), left, summary);
+  } catch (e) {
+    console.error('خطای پردازش یادآوری کد تخفیف:', e);
+  }
   return summary;
 }

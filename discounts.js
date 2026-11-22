@@ -45,5 +45,9 @@ export async function resolveDiscountCode(env, text, productId, chatId, now = Da
         : String(productId) === row.product_id;
     if (!applies) return { ok: false, reason: 'not_applicable' };
   }
+  // ثبت اینکه این کاربر کد را مصرف کرده؛ مبنای یادآوری «کد استفاده‌نشده» است
+  if (chatId) {
+    await db.recordDiscountUse(env, code, chatId).catch((e) => console.error('recordDiscountUse', e));
+  }
   return { ok: true, percent: Number(row.percent), scope: row.product_id || null };
 }
